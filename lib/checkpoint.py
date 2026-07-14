@@ -28,10 +28,12 @@ STAGES = ["research", "proposal", "idea", "script", "scene_plan",
           "assets", "edit", "compose", "publish"]
 
 CANONICAL_STAGE_ARTIFACTS = {
+    "ingest": "lesson_source",
     "research": "research_brief",
     "proposal": "proposal_packet",
     "idea": "brief",
     "script": "script",
+    "narration": "narration_timeline",
     "scene_plan": "scene_plan",
     "assets": "asset_manifest",
     "edit": "edit_decisions",
@@ -131,9 +133,59 @@ def _validate_artifacts_for_stage(
             )
         try:
             validate_artifact(artifact_name, artifact_data)
+            if artifact_name == "lesson_source":
+                from lib.lesson_source import build_lesson_source
+
+                expected = build_lesson_source(
+                    artifact_data["source_text"],
+                    language=artifact_data["language"],
+                )
+                if artifact_data != expected:
+                    raise ValueError(
+                        "lesson_source does not match deterministic normalization "
+                        "and source hash"
+                    )
+            elif artifact_name == "narration_timeline":
+                from lib.lesson_source import validate_narration_timeline
+
+                reconstructed_source = "".join(
+                    str(unit.get("source_text", ""))
+                    for unit in artifact_data.get("units", [])
+                    if isinstance(unit, dict)
+                )
+                validate_narration_timeline(
+                    reconstructed_source,
+                    artifact_data,
+                )
         except Exception as exc:
             raise CheckpointValidationError(
                 f"Artifact {artifact_name!r} failed schema validation: {exc}"
+            ) from exc
+
+    # A narration timeline cannot authenticate itself: a rewritten timeline
+    # could otherwise carry a matching self-generated hash.  At the narration
+    # gate, bind it back to the independently locked ingest artifact.
+    if stage == "narration" and status in {"completed", "awaiting_human"}:
+        lesson_source = artifacts.get("lesson_source")
+        timeline = artifacts.get("narration_timeline")
+        if not isinstance(lesson_source, dict):
+            raise CheckpointValidationError(
+                "Stage 'narration' must include the locked lesson_source so "
+                "narration_timeline can be verified across stages"
+            )
+        if not isinstance(timeline, dict):
+            return
+        try:
+            from lib.lesson_source import validate_narration_timeline
+
+            validate_narration_timeline(
+                str(lesson_source["normalized_text"]),
+                timeline,
+            )
+        except Exception as exc:
+            raise CheckpointValidationError(
+                "Artifact 'narration_timeline' does not match locked "
+                f"lesson_source: {exc}"
             ) from exc
 
 

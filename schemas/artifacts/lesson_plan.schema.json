@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/lesson_plan",
+  "title": "English Textbook Lesson Plan",
+  "type": "object",
+  "required": ["version", "source_sha256", "audience", "target_duration_seconds", "caption", "voice", "visual", "render", "music", "quota_policy"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "source_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "audience": {
+      "type": "object",
+      "required": ["level", "description"],
+      "properties": {
+        "level": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "target_duration_seconds": { "type": "number", "minimum": 1 },
+    "caption": {
+      "type": "object",
+      "required": ["language", "mode"],
+      "properties": {
+        "language": { "type": "string", "const": "en" },
+        "mode": { "type": "string", "const": "word_highlight" }
+      },
+      "additionalProperties": false
+    },
+    "voice": {
+      "type": "object",
+      "required": ["profile", "model", "language_type"],
+      "properties": {
+        "profile": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "language_type": { "type": "string", "const": "English" }
+      },
+      "additionalProperties": false
+    },
+    "visual": {
+      "type": "object",
+      "required": ["style_playbook", "image_model", "video_model"],
+      "properties": {
+        "style_playbook": { "type": "string", "minLength": 1 },
+        "image_model": { "type": "string", "minLength": 1 },
+        "video_model": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "render": {
+      "type": "object",
+      "required": ["runtime", "composition_mode", "resolution", "fps"],
+      "properties": {
+        "runtime": { "type": "string", "enum": ["remotion", "hyperframes", "ffmpeg"] },
+        "composition_mode": { "type": "string", "enum": ["templated", "atelier"] },
+        "resolution": { "type": "string", "pattern": "^[1-9][0-9]*x[1-9][0-9]*$" },
+        "fps": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "music": {
+      "type": "object",
+      "required": ["source", "reason"],
+      "properties": {
+        "source": { "type": "string", "enum": ["none", "user_library", "ai_generated", "bring_your_own"] },
+        "reason": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "quota_policy": {
+      "type": "object",
+      "required": ["free_tier_only", "paid_spend_cap"],
+      "properties": {
+        "free_tier_only": { "type": "boolean" },
+        "paid_spend_cap": { "type": "number", "minimum": 0 },
+        "on_exhaustion": { "type": "string", "const": "stop_and_request_model_change" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

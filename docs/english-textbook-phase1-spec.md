@@ -292,7 +292,7 @@ The runtime and music recommendation must be explicitly approved before the firs
 
 - **Scenario:** An approved first-frame image is available as an accepted URL or data URI.
 - **Action:** Execute DashScope video generation.
-- **Expected:** One asynchronous task uses `wan2.6-i2v-flash`, 1080P, duration 10, `audio=false`, `prompt_extend=false`, and `watermark=false`; polling resumes from the original task ID and downloads one MP4.
+- **Expected:** One asynchronous task uses `wan2.6-i2v-flash`, 1080P, duration 10, `audio=false`, `prompt_extend=false`, and `watermark=false`; a project-local task-state file durably records the task ID without its signed output URL, polling resumes from that ID, and one MP4 is downloaded.
 - **Must not:** Create duplicate tasks during polling, enable generated audio, retry free-tier exhaustion, or switch models.
 - **Verification:** Mocked create/poll/download tests and live ffprobe validation.
 - **Priority:** Required.
@@ -301,7 +301,7 @@ The runtime and music recommendation must be explicitly approved before the firs
 
 - **Scenario:** Narration audio and ASR word timestamps exist.
 - **Action:** Build caption data and compose the video.
-- **Expected:** Every canonical word appears in order and active-word timing maps to video frames.
+- **Expected:** Every canonical word appears in order and active-word timing maps to video frames; contractions split by ASR and spoken-year variants such as `1901` are positionally aligned, while a separate URL-free raw-ASR transcript remains available for independent narration QA.
 - **Must not:** Replace source words with ASR guesses.
 - **Verification:** Token-alignment unit tests and frame-level caption fixture tests.
 - **Priority:** Required.
@@ -310,7 +310,7 @@ The runtime and music recommendation must be explicitly approved before the firs
 
 - **Scenario:** Approved assets, edit decisions, and composition runtime are available.
 - **Action:** Run `compose` for the verification fixture.
-- **Expected:** The render is 1920×1080, H.264 MP4, 30 fps, contains an audio stream, and has a measured duration between 9.90 and 10.10 seconds.
+- **Expected:** Strict review metadata locks the render to 1920×1080, H.264 MP4, 30 fps, an audio stream, complete canonical caption coverage, and a measured duration between 9.90 and 10.10 seconds; any issue returns `revise` rather than `pass`.
 - **Must not:** Depend on files outside the project workspace or expose credentials in metadata/logs.
 - **Verification:** ffprobe JSON assertions, visual frame sampling, and an audible playback review.
 - **Priority:** Required.

@@ -877,11 +877,12 @@ class VideoCompose(BaseTool):
             "final_review_status": final_review.get("status"),
         }
 
-        if final_review.get("status") == "fail":
+        if final_review.get("status") != "pass":
             return ToolResult(
                 success=False,
                 error=(
-                    "Atelier render produced an invalid output:\n"
+                    "Atelier render did not pass final review "
+                    f"(status={final_review.get('status')}):\n"
                     + "\n".join(f"  • {i}" for i in final_review.get("issues_found", []))
                 ),
                 data=data,
@@ -1098,7 +1099,7 @@ class VideoCompose(BaseTool):
                 "surfaceColor": surface,
                 "textColor": text,
                 "mutedTextColor": muted,
-                "headingFont": typo.get("heading", {}).get("font", "Inter"),
+                "headingFont": typo.get("headings", {}).get("font", "Inter"),
                 "bodyFont": typo.get("body", {}).get("font", "Inter"),
                 "monoFont": typo.get("code", {}).get("font", "JetBrains Mono"),
                 "chartColors": chart_colors[:6],
@@ -1107,7 +1108,10 @@ class VideoCompose(BaseTool):
             }
 
             # Derive caption colors from the palette
-            theme["captionHighlightColor"] = primary
+            # Captions sit on a dark translucent band. The accent is the
+            # playbook's emphasis color and remains readable there; a dark
+            # primary (for example ESL navy) can make the active word vanish.
+            theme["captionHighlightColor"] = accent
             # Caption background: semi-transparent version of the bg color
             theme["captionBackgroundColor"] = (
                 f"rgba(255, 255, 255, 0.85)" if bg.upper() in ("#FFFFFF", "#FAFAFA", "#F9FAFB")
@@ -1479,12 +1483,16 @@ class VideoCompose(BaseTool):
             render_result.data["final_review"] = final_review
             render_result.data["final_review_status"] = final_review["status"]
 
-            # If the self-review says fail, downgrade the ToolResult
-            if final_review["status"] == "fail":
+            # A `revise` result is also not a deliverable. Keep the rendered
+            # artifact for diagnosis, but mechanically block presentation
+            # until final_review is an explicit pass.
+            if final_review["status"] != "pass":
                 return ToolResult(
                     success=False,
                     error=(
-                        "Post-render self-review FAILED. The output is not presentable.\n"
+                        "Post-render self-review did not pass "
+                        f"(status={final_review['status']}). The output is not "
+                        "presentable.\n"
                         + "\n".join(f"  • {i}" for i in final_review.get("issues_found", []))
                     ),
                     data=render_result.data,
@@ -1598,11 +1606,13 @@ class VideoCompose(BaseTool):
                 render_result.data = {}
             render_result.data["final_review"] = final_review
             render_result.data["final_review_status"] = final_review["status"]
-            if final_review["status"] == "fail":
+            if final_review["status"] != "pass":
                 return ToolResult(
                     success=False,
                     error=(
-                        "Post-render self-review FAILED (HyperFrames). The output is not presentable.\n"
+                        "Post-render self-review did not pass (HyperFrames; "
+                        f"status={final_review['status']}). The output is not "
+                        "presentable.\n"
                         + "\n".join(f"  • {i}" for i in final_review.get("issues_found", []))
                     ),
                     data=render_result.data,
@@ -1658,11 +1668,13 @@ class VideoCompose(BaseTool):
                 render_result.data = {}
             render_result.data["final_review"] = final_review
             render_result.data["final_review_status"] = final_review["status"]
-            if final_review["status"] == "fail":
+            if final_review["status"] != "pass":
                 return ToolResult(
                     success=False,
                     error=(
-                        "Post-render self-review FAILED (FFmpeg). The output is not presentable.\n"
+                        "Post-render self-review did not pass (FFmpeg; "
+                        f"status={final_review['status']}). The output is not "
+                        "presentable.\n"
                         + "\n".join(f"  • {i}" for i in final_review.get("issues_found", []))
                     ),
                     data=render_result.data,
@@ -1697,18 +1709,70 @@ class VideoCompose(BaseTool):
         # Absolutise so the CLI can resolve the output regardless of cwd.
         output_path = output_path.resolve()
 
+        # remotion-composer lives at project root.
+        composer_dir = Path(__file__).resolve().parent.parent.parent / "remotion-composer"
+        if not composer_dir.exists():
+            return ToolResult(
+                success=False,
+                error=f"Remotion composer project not found at {composer_dir}",
+            )
+
         # Deep-copy props so we don't mutate the original
         props = json.loads(json.dumps(composition_data))
 
-        # Convert absolute file paths to file:// URIs for Remotion's
-        # Img and OffthreadVideo components
+        # Remotion 4's media proxy only downloads http(s) URLs; OffthreadVideo
+        # rejects file:// even though Chromium can otherwise read that scheme.
+        # Stage local media into an isolated public directory and let the React
+        # resolver use staticFile(relative-name). The directory is removed in
+        # finally, so project assets remain the only durable copies.
+        public_dir = output_path.parent / f".{output_path.stem}.remotion-public"
+        if public_dir.exists():
+            shutil.rmtree(public_dir)
+        staged_count = 0
+
+        def stage_local_asset(source: object) -> object:
+            nonlocal staged_count
+            if not isinstance(source, str) or source.startswith(
+                ("http://", "https://", "data:")
+            ):
+                return source
+
+            candidate_text = source
+            if source.startswith("file://"):
+                from urllib.parse import unquote, urlparse
+
+                candidate_text = unquote(urlparse(source).path)
+                if (
+                    len(candidate_text) >= 3
+                    and candidate_text[0] == "/"
+                    and candidate_text[2] == ":"
+                ):
+                    candidate_text = candidate_text[1:]
+
+            candidate = Path(candidate_text).expanduser()
+            if not candidate.is_absolute():
+                candidate = candidate.resolve()
+            if not candidate.exists() or not candidate.is_file():
+                return source
+
+            public_dir.mkdir(parents=True, exist_ok=True)
+            suffix = candidate.suffix or ".bin"
+            staged_name = f"asset_{staged_count:03d}{suffix}"
+            staged_count += 1
+            shutil.copy2(candidate, public_dir / staged_name)
+            return staged_name
+
         for cut in props.get("cuts", []):
-            source = cut.get("source", "")
-            if source and not source.startswith(("http://", "https://", "file://")):
-                resolved = Path(source).resolve()
-                if resolved.exists():
-                    posix = resolved.as_posix()
-                    cut["source"] = f"file:///{posix}" if not posix.startswith("/") else f"file://{posix}"
+            cut["source"] = stage_local_asset(cut.get("source", ""))
+
+        # Narration and music use the same staged public directory as video.
+        audio = props.get("audio")
+        if isinstance(audio, dict):
+            for layer_name in ("narration", "music"):
+                layer = audio.get(layer_name)
+                if not isinstance(layer, dict):
+                    continue
+                layer["src"] = stage_local_asset(layer.get("src"))
 
         # Build a custom themeConfig from the playbook's actual colors.
         # This ensures every video gets a unique visual identity derived
@@ -1728,14 +1792,6 @@ class VideoCompose(BaseTool):
         with open(props_path, "w", encoding="utf-8") as f:
             json.dump(props, f)
 
-        # remotion-composer lives at project root
-        composer_dir = Path(__file__).resolve().parent.parent.parent / "remotion-composer"
-        if not composer_dir.exists():
-            return ToolResult(
-                success=False,
-                error=f"Remotion composer project not found at {composer_dir}",
-            )
-
         # Route to the correct Remotion composition based on renderer_family.
         # This prevents all pipelines from collapsing into the Explainer visual grammar.
         renderer_family = (composition_data or {}).get("renderer_family", "explainer-data")
@@ -1753,6 +1809,23 @@ class VideoCompose(BaseTool):
             # API Remotion recommends for file paths and is cross-platform safe.
             f"--props={props_path}",
         ]
+        if public_dir.exists():
+            cmd.append(f"--public-dir={public_dir}")
+
+        # A target duration is an explicit delivery contract, not a hint.
+        # Explainer's legacy metadata calculator adds one second of tail
+        # padding, so constrain the Remotion render to the exact frame range
+        # when a pipeline supplies metadata.target_duration_seconds.
+        target_duration = (props.get("metadata") or {}).get(
+            "target_duration_seconds"
+        )
+        if target_duration is not None:
+            try:
+                target_frames = round(float(target_duration) * 30)
+            except (TypeError, ValueError):
+                target_frames = 0
+            if target_frames > 0:
+                cmd.append(f"--frames=0-{target_frames - 1}")
 
         # Apply media profile dimensions
         profile_name = inputs.get("profile")
@@ -1808,6 +1881,8 @@ class VideoCompose(BaseTool):
         finally:
             if props_path.exists():
                 props_path.unlink()
+            if public_dir.exists():
+                shutil.rmtree(public_dir, ignore_errors=True)
 
         if not output_path.exists():
             return ToolResult(
@@ -2045,20 +2120,50 @@ class VideoCompose(BaseTool):
 
                 # Check target duration from edit_decisions
                 target_dur = None
+                review_metadata: dict[str, Any] = {}
                 if edit_decisions:
+                    review_metadata = edit_decisions.get("metadata", {}) or {}
                     target_dur = (
                         edit_decisions.get("total_duration_seconds")
-                        or edit_decisions.get("metadata", {}).get("target_duration_seconds")
+                        or review_metadata.get("target_duration_seconds")
                     )
                 if target_dur and target_dur > 0:
+                    drift_seconds = abs(duration - float(target_dur))
                     drift_pct = abs(duration - target_dur) / target_dur
-                    if drift_pct > 0.25:
+                    tolerance_seconds = review_metadata.get(
+                        "duration_tolerance_seconds"
+                    )
+                    outside_tolerance = (
+                        drift_seconds > float(tolerance_seconds)
+                        if tolerance_seconds is not None
+                        else drift_pct > 0.25
+                    )
+                    if outside_tolerance:
                         technical_probe["issues"].append(
                             f"Duration drift: rendered {duration:.1f}s vs target {target_dur}s "
-                            f"({drift_pct:.0%} off). Review pacing or trim."
+                            f"({drift_pct:.0%} off, {drift_seconds:.2f}s absolute). "
+                            "Review pacing or trim."
                         )
                     technical_probe["target_duration"] = target_dur
+                    technical_probe["duration_drift_seconds"] = round(
+                        drift_seconds, 3
+                    )
                     technical_probe["duration_drift_pct"] = round(drift_pct * 100, 1)
+                expected_resolution = review_metadata.get("expected_resolution")
+                if expected_resolution and f"{width}x{height}" != expected_resolution:
+                    technical_probe["issues"].append(
+                        "Resolution mismatch: rendered "
+                        f"{width}x{height}, expected {expected_resolution}"
+                    )
+                expected_codec = str(
+                    review_metadata.get("expected_video_codec") or ""
+                ).lower()
+                actual_codec = str(video_stream.get("codec_name", "")).lower()
+                if expected_codec and actual_codec != expected_codec:
+                    technical_probe["issues"].append(
+                        f"Codec mismatch: rendered {actual_codec or 'unknown'}, "
+                        f"expected {expected_codec}"
+                    )
                 if width < 320 or height < 240:
                     technical_probe["issues"].append(
                         f"Resolution {width}x{height} is very low"
@@ -2289,7 +2394,78 @@ class VideoCompose(BaseTool):
         }
         if edit_decisions:
             ed_subs = edit_decisions.get("subtitles", {})
-            subtitle_check["subtitles_expected"] = bool(ed_subs.get("enabled"))
+            native_captions = self._has_burned_in_captions(edit_decisions)
+            subtitle_check["subtitles_expected"] = bool(
+                ed_subs.get("enabled") or native_captions
+            )
+            if native_captions:
+                # CaptionOverlay is burned into pixels, so ffprobe cannot see
+                # a subtitle stream. Validate completeness and timing against
+                # the canonical script instead of treating any non-empty list
+                # as 100% coverage.
+                subtitle_check["subtitles_present"] = True
+                caption_items = edit_decisions.get("captions", [])
+                caption_tokens = self._tokenize(
+                    " ".join(
+                        str(item.get("word", ""))
+                        for item in caption_items
+                        if isinstance(item, dict)
+                    )
+                )
+                script_tokens = self._tokenize(script_text or "")
+                if script_tokens:
+                    aligned = sum(
+                        1
+                        for expected, actual in zip(script_tokens, caption_tokens)
+                        if expected == actual
+                    )
+                    coverage = aligned / len(script_tokens)
+                    subtitle_check["coverage_ratio"] = round(coverage, 3)
+                    if caption_tokens != script_tokens:
+                        subtitle_check["issues"].append(
+                            "Caption coverage incomplete: canonical sequence match is "
+                            f"{aligned}/{len(script_tokens)} ({coverage:.0%})"
+                        )
+                else:
+                    subtitle_check["coverage_ratio"] = 0.0
+                    subtitle_check["issues"].append(
+                        "Caption coverage could not be verified because script_text "
+                        "was not provided"
+                    )
+
+                previous_end_ms = 0
+                target_ms = int(
+                    float(
+                        (edit_decisions.get("metadata") or {}).get(
+                            "target_duration_seconds", 0
+                        )
+                    )
+                    * 1000
+                )
+                for index, item in enumerate(caption_items):
+                    if not isinstance(item, dict):
+                        subtitle_check["issues"].append(
+                            f"Caption timing invalid at index {index}: not an object"
+                        )
+                        continue
+                    start_ms = item.get("startMs")
+                    end_ms = item.get("endMs")
+                    valid_timing = (
+                        isinstance(start_ms, int)
+                        and not isinstance(start_ms, bool)
+                        and isinstance(end_ms, int)
+                        and not isinstance(end_ms, bool)
+                        and start_ms >= previous_end_ms
+                        and start_ms < end_ms
+                        and (not target_ms or end_ms <= target_ms)
+                    )
+                    if not valid_timing:
+                        subtitle_check["issues"].append(
+                            f"Caption timing invalid at index {index}: "
+                            f"startMs={start_ms}, endMs={end_ms}"
+                        )
+                        break
+                    previous_end_ms = end_ms
 
             # Check if output has subtitle stream
             if technical_probe.get("valid_container"):
@@ -2305,7 +2481,9 @@ class VideoCompose(BaseTool):
                     if proc.returncode == 0:
                         sub_data = json.loads(proc.stdout)
                         sub_streams = sub_data.get("streams", [])
-                        subtitle_check["subtitles_present"] = len(sub_streams) > 0
+                        subtitle_check["subtitles_present"] = (
+                            native_captions or len(sub_streams) > 0
+                        )
 
                     # If subtitles were expected but not found as a stream,
                     # they may be burned in (which is fine — not a failure)
@@ -2345,10 +2523,18 @@ class VideoCompose(BaseTool):
                 "silent downgrade", "delivery promise violation",
                 "effectively silent", "ffprobe failed", "suspiciously short",
                 "tts punctuation leak",  # reading literal punctuation aloud
+                "duration drift", "caption coverage", "caption timing",
+                "no audio stream", "resolution mismatch", "codec mismatch",
+                "low transcript-to-script match",
             ])
         ]
 
-        if critical_issues:
+        strict_review = bool(
+            edit_decisions
+            and (edit_decisions.get("metadata") or {}).get("strict_review")
+        )
+
+        if critical_issues or (strict_review and issues):
             status = "revise"
             recommended_action = "re_render"
         elif issues:
@@ -2384,6 +2570,13 @@ class VideoCompose(BaseTool):
         )
 
         return final_review
+
+    @staticmethod
+    def _has_burned_in_captions(edit_decisions: dict[str, Any]) -> bool:
+        """Return whether Remotion received a non-empty native caption list."""
+
+        captions = edit_decisions.get("captions")
+        return isinstance(captions, list) and bool(captions)
 
     @staticmethod
     def _parse_probe_fps(fps_str: str) -> float:

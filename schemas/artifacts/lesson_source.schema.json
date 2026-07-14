@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/lesson_source",
+  "title": "English Textbook Lesson Source",
+  "type": "object",
+  "required": ["version", "language", "source_text", "normalized_text", "source_sha256", "adaptation_mode", "normalizations_applied"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "language": { "type": "string", "const": "en" },
+    "source_text": { "type": "string", "minLength": 1 },
+    "normalized_text": { "type": "string", "minLength": 1 },
+    "source_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "adaptation_mode": { "type": "string", "const": "verbatim" },
+    "normalizations_applied": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["normalize_line_endings", "trim_outer_whitespace", "collapse_whitespace", "normalize_typographic_quotes"]
+      },
+      "uniqueItems": true
+    }
+  },
+  "additionalProperties": false
+}

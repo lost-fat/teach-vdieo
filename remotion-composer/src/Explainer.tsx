@@ -18,7 +18,7 @@ function resolveAsset(src: string): string {
     return src;
   }
   // Strip any file:// prefix
-  const clean = src.replace(/^file:\/\/\/?/, "");
+  const clean = src.replace(/^file:\/\//, "");
   // Absolute paths (Unix: /foo, Windows: C:\foo or C:/foo) — convert to file:// URI
   // staticFile() only accepts relative paths within public/, so absolute paths must bypass it
   if (clean.startsWith("/") || /^[A-Za-z]:[\\/]/.test(clean)) {

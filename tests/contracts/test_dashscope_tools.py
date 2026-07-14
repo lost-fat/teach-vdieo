@@ -432,6 +432,56 @@ class TestDashscopeImageMultiOutput:
         assert out.exists()
         assert not (tmp_path / "shot_1.png").exists()
 
+    def test_download_error_does_not_expose_signed_oss_url(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "fake-key")
+        signed_url = "https://oss.example/image.png?Signature=top-secret"
+
+        class FakeResp:
+            def __init__(self, status_code, payload=None, content=b""):
+                self.status_code = status_code
+                self._payload = payload or {}
+                self.content = content
+
+            def json(self):
+                return self._payload
+
+            def raise_for_status(self):  # pragma: no cover - leak guard
+                raise RuntimeError(f"failed URL {signed_url}")
+
+        api_response = {
+            "output": {
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {"content": [{"image": signed_url}]},
+                    }
+                ]
+            }
+        }
+
+        import requests
+
+        monkeypatch.setattr(
+            requests, "post", lambda *a, **kw: FakeResp(200, api_response)
+        )
+        monkeypatch.setattr(
+            requests, "get", lambda *a, **kw: FakeResp(403)
+        )
+
+        result = DashscopeImage().execute(
+            {
+                "prompt": "test",
+                "output_path": str(tmp_path / "image.png"),
+            }
+        )
+
+        assert result.success is False
+        assert "Signature" not in result.error
+        assert "top-secret" not in result.error
+        assert "HTTP 403" in result.error
+
 
 class TestDashscopeIdempotencyKeys:
     """Regression tests for PR #240 review: idempotency keys must include
@@ -487,10 +537,11 @@ class TestDashscopeIdempotencyKeys:
             {**base, "instructions": "speak softly"}
         )
 
-    def test_asr_idempotency_includes_enable_words_and_language_hints(self):
+    def test_asr_idempotency_includes_enable_words_and_language(self):
         fields = DashscopeAsr().idempotency_key_fields
         assert "enable_words" in fields
-        assert "language_hints" in fields
+        assert "language" in fields
+        assert "language_hints" not in fields
 
     def test_asr_idempotency_differs_on_enable_words(self):
         tool = DashscopeAsr()
@@ -499,13 +550,13 @@ class TestDashscopeIdempotencyKeys:
             {**base, "enable_words": True}
         ) != tool.idempotency_key({**base, "enable_words": False})
 
-    def test_asr_idempotency_differs_on_language_hints(self):
+    def test_asr_idempotency_differs_on_language(self):
         tool = DashscopeAsr()
         base = {"audio_url": "https://x/a.mp3", "model": "qwen3-asr-flash-filetrans"}
         assert tool.idempotency_key(
-            {**base, "language_hints": ["zh"]}
+            {**base, "language": "zh"}
         ) != tool.idempotency_key(
-            {**base, "language_hints": ["zh", "en"]}
+            {**base, "language": "en"}
         )
 
 
@@ -583,11 +634,12 @@ class TestDashscopeAsrSpecific:
         tool = DashscopeAsr()
         assert tool.input_schema["properties"]["enable_words"]["default"] is True
 
-    def test_default_language_hints_includes_zh_en(self):
+    def test_asr_schema_uses_official_single_language_parameter(self):
         tool = DashscopeAsr()
-        hints = tool.input_schema["properties"]["language_hints"]["default"]
-        assert "zh" in hints
-        assert "en" in hints
+        properties = tool.input_schema["properties"]
+        assert "language" in properties
+        assert "en" in properties["language"]["enum"]
+        assert "language_hints" not in properties
 
     def test_rejects_local_file_path(self, monkeypatch):
         """audio_url must be a public URL — local paths are rejected."""
@@ -620,8 +672,12 @@ class TestDashscopeAsrSpecific:
 
     def test_build_payload_enables_words(self):
         tool = DashscopeAsr()
-        payload = tool._build_payload({"audio_url": "https://x.com/a.mp3"})
+        payload = tool._build_payload(
+            {"audio_url": "https://x.com/a.mp3", "language": "en"}
+        )
         assert payload["parameters"]["enable_words"] is True
+        assert payload["parameters"]["language"] == "en"
+        assert "language_hints" not in payload["parameters"]
 
     def test_build_payload_includes_file_url(self):
         """qwen3-asr-flash-filetrans uses file_url (singular string),
@@ -682,7 +738,7 @@ class TestDashscopeAsrSpecific:
 
 class TestDashscopeRegistryDiscovery:
 
-    def test_all_three_tools_discoverable(self):
+    def test_all_dashscope_tools_discoverable(self):
         from tools.tool_registry import ToolRegistry
         registry = ToolRegistry()
         registry.discover()
@@ -691,7 +747,13 @@ class TestDashscopeRegistryDiscovery:
             if t.provider == "dashscope"
         ]
         names = {t.name for t in dashscope_tools}
-        assert names == {"dashscope_image", "dashscope_tts", "dashscope_asr"}
+        assert names == {
+            "dashscope_image",
+            "dashscope_tts",
+            "dashscope_asr",
+            "dashscope_text",
+            "dashscope_video",
+        }
 
     def test_image_selector_finds_dashscope(self):
         """image_selector should auto-discover dashscope_image by capability."""

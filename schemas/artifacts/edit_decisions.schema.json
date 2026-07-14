@@ -94,6 +94,16 @@
         "narration": {
           "type": "object",
           "properties": {
+            "src": {
+              "type": "string",
+              "description": "Narration audio path or URL consumed directly by Remotion."
+            },
+            "volume": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 1
+            },
             "segments": {
               "type": "array",
               "items": {
@@ -107,7 +117,8 @@
                 "additionalProperties": false
               }
             }
-          }
+          },
+          "additionalProperties": false
         },
         "music": {
           "type": "object",
@@ -148,6 +159,20 @@
         }
       },
       "additionalProperties": false
+    },
+    "captions": {
+      "type": "array",
+      "description": "Word-level captions burned in by Remotion's CaptionOverlay.",
+      "items": {
+        "type": "object",
+        "required": ["word", "startMs", "endMs"],
+        "properties": {
+          "word": { "type": "string", "minLength": 1 },
+          "startMs": { "type": "integer", "minimum": 0 },
+          "endMs": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
     },
     "subtitles": {
       "type": "object",

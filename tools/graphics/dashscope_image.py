@@ -12,6 +12,12 @@ import time
 from pathlib import Path
 from typing import Any
 
+from tools._dashscope.errors import (
+    DashscopeAPIError,
+    ensure_success,
+    safe_error_text,
+    tool_error_data,
+)
 from tools.base_tool import (
     BaseTool,
     Determinism,
@@ -162,8 +168,7 @@ class DashscopeImage(BaseTool):
                 json=payload,
                 timeout=180,
             )
-            response.raise_for_status()
-            data = response.json()
+            data = ensure_success(response)
 
             image_urls = self._extract_image_urls(data)
             if not image_urls:
@@ -179,13 +184,35 @@ class DashscopeImage(BaseTool):
             )
             for path, url in zip(output_paths, image_urls):
                 download = requests.get(url, timeout=120)
-                download.raise_for_status()
+                status_code = int(
+                    getattr(download, "status_code", 0) or 0
+                )
+                if status_code >= 400:
+                    # Signed OSS URLs are credentials.  Do not delegate to
+                    # raise_for_status(), whose exception text includes the
+                    # full URL and signature.
+                    raise RuntimeError(
+                        f"DashScope image download failed with HTTP {status_code}"
+                    )
+                content = bytes(getattr(download, "content", b""))
+                if not content:
+                    raise RuntimeError(
+                        "DashScope image download returned an empty file"
+                    )
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(download.content)
+                path.write_bytes(content)
 
             usage = data.get("usage", {})
             n_generated = len(image_urls)
 
+        except DashscopeAPIError as exc:
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                data=tool_error_data(exc),
+                duration_seconds=round(time.time() - start, 2),
+                model=str(inputs.get("model", "qwen-image-2.0-pro")),
+            )
         except Exception as e:
             return ToolResult(
                 success=False,
@@ -268,6 +295,4 @@ class DashscopeImage(BaseTool):
 
     @staticmethod
     def _safe_error(exc: Exception) -> str:
-        return str(exc).replace(
-            os.environ.get("DASHSCOPE_API_KEY", ""), "[redacted]"
-        )
+        return safe_error_text(exc)

@@ -64,6 +64,8 @@ def _lesson_plan() -> dict:
 
 
 def _narration_timeline() -> dict:
+    tokens = SOURCE.split()
+    word_step_ms = 9_100 / len(tokens)
     return {
         "version": "1.0",
         "source_sha256": SOURCE_HASH,
@@ -78,8 +80,12 @@ def _narration_timeline() -> dict:
                 "audio_path": "projects/test/assets/audio/narration.wav",
                 "actual_duration_ms": 9_100,
                 "words": [
-                    {"text": "Before", "start_ms": 0, "end_ms": 300},
-                    {"text": "then,", "start_ms": 310, "end_ms": 600},
+                    {
+                        "text": token,
+                        "start_ms": round(index * word_step_ms),
+                        "end_ms": round((index + 1) * word_step_ms),
+                    }
+                    for index, token in enumerate(tokens)
                 ],
                 "visual_beats": [
                     {
@@ -201,9 +207,57 @@ def test_narration_checkpoint_requires_timeline():
         validate_checkpoint(_checkpoint("narration", {}))
     validate_checkpoint(
         _checkpoint(
-            "narration", {"narration_timeline": _narration_timeline()}
+            "narration",
+            {
+                "lesson_source": _lesson_source(),
+                "narration_timeline": _narration_timeline(),
+            },
         )
     )
+
+
+def test_narration_checkpoint_rejects_timeline_for_rewritten_source():
+    rewritten = "A completely different narration."
+    rewritten_hash = hashlib.sha256(rewritten.encode("utf-8")).hexdigest()
+    timeline = {
+        "version": "1.0",
+        "source_sha256": rewritten_hash,
+        "total_duration_ms": 1_000,
+        "units": [
+            {
+                "id": "nu-rewritten",
+                "source_text": rewritten,
+                "source_start_char": 0,
+                "source_end_char": len(rewritten),
+                "audio_asset_id": "rewritten-audio",
+                "audio_path": "rewritten.wav",
+                "actual_duration_ms": 1_000,
+                "words": [
+                    {"text": word, "start_ms": index * 250, "end_ms": (index + 1) * 250}
+                    for index, word in enumerate(rewritten.split())
+                ],
+                "visual_beats": [
+                    {
+                        "id": "vb-rewritten",
+                        "start_ms": 0,
+                        "end_ms": 1_000,
+                        "visual_intent": "This must not replace the locked source.",
+                    }
+                ],
+            }
+        ],
+    }
+
+    with pytest.raises(CheckpointValidationError, match="lesson_source"):
+        validate_checkpoint(
+            _checkpoint(
+                "narration",
+                {
+                    "lesson_source": _lesson_source(),
+                    "narration_timeline": timeline,
+                },
+            )
+        )
 
 
 def test_director_skills_exist_and_have_operational_sections():

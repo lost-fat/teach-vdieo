@@ -44,7 +44,7 @@ function resolveAsset(src: string): string {
   ) {
     return src;
   }
-  const clean = src.replace(/^file:\/\/\/?/, "");
+  const clean = src.replace(/^file:\/\//, "");
   if (clean.startsWith("/") || /^[A-Za-z]:[\\/]/.test(clean)) {
     const posix = clean.replace(/\\/g, "/");
     // POSIX absolute paths already have a leading "/" — file:// + posix

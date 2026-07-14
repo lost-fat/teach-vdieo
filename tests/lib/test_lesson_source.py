@@ -14,6 +14,7 @@ from lib.lesson_source import (
     normalize_source_text,
     validate_narration_timeline,
 )
+from schemas.artifacts import validate_artifact
 
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -43,6 +44,11 @@ def test_normalization_does_not_silently_fix_missing_space():
     assert normalized == "Kenya'smain port"
 
 
+def test_normalized_lesson_source_is_accepted_by_registered_schema():
+    artifact = build_lesson_source("  Before\r\n then.  ")
+    validate_artifact("lesson_source", artifact)
+
+
 def test_build_lesson_source_locks_corrected_user_fixture():
     artifact = build_lesson_source(FIXTURE["source_text"], language="en")
 
@@ -61,6 +67,19 @@ def test_empty_source_is_rejected():
 
 def _timeline_for(source: str) -> dict:
     split = source.index(" and an old railway")
+
+    def timed_words(text: str, start_ms: int, end_ms: int) -> list[dict]:
+        tokens = text.split()
+        step = (end_ms - start_ms) / len(tokens)
+        return [
+            {
+                "text": token,
+                "start_ms": round(start_ms + index * step),
+                "end_ms": round(start_ms + (index + 1) * step),
+            }
+            for index, token in enumerate(tokens)
+        ]
+
     return {
         "version": "1.0",
         "source_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
@@ -74,10 +93,7 @@ def _timeline_for(source: str) -> dict:
                 "audio_asset_id": "narration-nu-001",
                 "audio_path": "projects/test/assets/audio/narration.wav",
                 "actual_duration_ms": 6_000,
-                "words": [
-                    {"text": "Before", "start_ms": 0, "end_ms": 350},
-                    {"text": "then,", "start_ms": 360, "end_ms": 650},
-                ],
+                "words": timed_words(source[:split], 0, 6_000),
                 "visual_beats": [
                     {
                         "id": "vb-001",
@@ -95,10 +111,7 @@ def _timeline_for(source: str) -> dict:
                 "audio_asset_id": "narration-nu-002",
                 "audio_path": "projects/test/assets/audio/narration-2.wav",
                 "actual_duration_ms": 4_000,
-                "words": [
-                    {"text": "and", "start_ms": 6_000, "end_ms": 6_250},
-                    {"text": "an", "start_ms": 6_260, "end_ms": 6_400},
-                ],
+                "words": timed_words(source[split:], 6_000, 10_000),
                 "visual_beats": [
                     {
                         "id": "vb-002",
@@ -150,4 +163,31 @@ def test_narration_timeline_rejects_wrong_hash():
     timeline["source_sha256"] = "0" * 64
 
     with pytest.raises(LessonContractError, match="hash"):
+        validate_narration_timeline(source, timeline)
+
+
+def test_narration_timeline_rejects_incomplete_canonical_word_coverage():
+    source = FIXTURE["source_text"]
+    timeline = _timeline_for(source)
+    timeline["units"][0]["words"].pop()
+
+    with pytest.raises(LessonContractError, match="word coverage"):
+        validate_narration_timeline(source, timeline)
+
+
+def test_narration_timeline_rejects_reversed_or_overlapping_word_times():
+    source = FIXTURE["source_text"]
+    timeline = _timeline_for(source)
+    timeline["units"][0]["words"][0].update(start_ms=500, end_ms=100)
+
+    with pytest.raises(LessonContractError, match="word timing"):
+        validate_narration_timeline(source, timeline)
+
+
+def test_narration_timeline_rejects_invalid_visual_beat_range():
+    source = FIXTURE["source_text"]
+    timeline = _timeline_for(source)
+    timeline["units"][0]["visual_beats"][0].update(start_ms=9_000, end_ms=100)
+
+    with pytest.raises(LessonContractError, match="visual beat"):
         validate_narration_timeline(source, timeline)

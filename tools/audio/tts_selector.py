@@ -188,7 +188,16 @@ class TTSSelector(BaseTool):
         if tool is None:
             return ToolResult(success=False, error="No TTS provider available.")
 
-        result = tool.execute(inputs)
+        adapted = dict(inputs)
+        tool_props = getattr(tool, "input_schema", {}).get("properties", {})
+        if (
+            "model" in tool_props
+            and "model" not in adapted
+            and adapted.get("model_id")
+        ):
+            adapted["model"] = adapted["model_id"]
+
+        result = tool.execute(adapted)
         if result.success:
             result.data.setdefault("selected_tool", tool.name)
             result.data["selected_provider"] = tool.provider

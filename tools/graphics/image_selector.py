@@ -242,6 +242,12 @@ class ImageSelector(BaseTool):
             props = tool.input_schema.get("properties", {})
             if "query" in props and "query" not in adapted:
                 adapted["query"] = adapted.get("prompt", "")
+            if (
+                "model" in props
+                and "model" not in adapted
+                and adapted.get("model_name")
+            ):
+                adapted["model"] = adapted["model_name"]
 
         # Strip selector-only keys that downstream tools don't understand
         adapted.pop("preferred_provider", None)

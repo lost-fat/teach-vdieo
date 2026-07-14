@@ -1,0 +1,84 @@
+identity:
+  name: "ESL Cinematic Editorial"
+  category: cinematic
+  mood: mature, vivid, trustworthy, quietly cinematic
+  pace: deliberate
+  best_for: "Source-faithful English textbook narration with contextual documentary visuals"
+
+visual_language:
+  color_palette:
+    primary: ["#18324A", "#8A5A3B"]
+    accent: ["#E8B44F", "#5F8D78"]
+    background: "#F3EEE5"
+    text: "#FFFDF8"
+    muted: "#C9C2B7"
+  composition: "full-bleed 16:9 editorial frame with a clear title-safe caption zone"
+  texture: "semi-realistic 2D documentary illustration, natural light, subtle paper grain"
+
+typography:
+  headings:
+    font: "Source Serif 4"
+    weight: 700
+    tracking: "-0.01em"
+  body:
+    font: "Inter"
+    weight: 600
+    line_height: 1.35
+  scale_system: "major_third"
+  weight_matrix:
+    title: 700
+    heading: 700
+    body: 600
+    caption: 700
+
+motion:
+  transitions: [cut, dissolve]
+  animation_style: "continuous natural camera motion with restrained parallax and no decorative bounce"
+  pacing_rules:
+    min_scene_hold_seconds: 2.5
+    max_scene_hold_seconds: 10
+    text_card_hold_seconds: 3
+    transition_duration_seconds: 0.35
+  entrance: "start on an already-composed establishing frame"
+  exit: "settle into a readable final hold"
+
+audio:
+  voice_style: "clear English teacher, warm authority, measured articulation, natural connected speech"
+  music_mood: "none for Phase 1 verification"
+  music_volume: 0
+  sfx_style: "none unless explicitly approved"
+  voice_variation_allowed: false
+
+asset_generation:
+  image_prompt_prefix: "mature cinematic editorial documentary illustration, semi-realistic 2D, full-bleed 16:9, natural light, restrained filmic color, historically grounded, no typography, "
+  image_negative_prompt: "readable text, captions, labels, watermark, logo, juvenile picture-book style, cartoon mascot, plastic 3D render, clutter"
+  diagram_style: "editorial spatial clarity without generated labels"
+  consistency_anchors:
+    - "Stable character identity, clothing, geography, weather, and historical period"
+    - "Natural light with navy, earth, muted green, and warm-gold accents"
+    - "No readable text inside generated image or video assets"
+    - "Primary subject remains clear above the title-safe caption band"
+
+quality_rules:
+  - "Keep a mature editorial tone; never drift into juvenile textbook illustration"
+  - "Generated assets contain no readable text, captions, labels, logos, or watermarks"
+  - "Keep canonical captions title-safe with at least 4.5:1 contrast"
+  - "Use real motion; do not silently substitute a still-image Ken Burns fallback"
+  - "Preserve identity, clothing, palette, geography, and period details"
+  - "Motion remains calm enough to follow narration and active-word highlighting"
+
+taste_profile:
+  design_read: "A premium editorial history illustration brought gently to life for focused language learning."
+  visual_variance: 3
+  motion_intensity: 4
+  information_density: 3
+  palette_discipline: "Navy and earth base with one warm-gold emphasis."
+  layout_variation: "One coherent scene may move between two visual beats."
+  reference_strategy: "Use the locked source and verify real places or period details."
+  anti_patterns:
+    - "picture-book clip art"
+    - "provider-rendered words"
+    - "busy motion competing with captions"
+  quality_gates:
+    - "The scene reads as one coherent ten-second motion shot."
+    - "Caption-safe composition remains intact across sampled frames."

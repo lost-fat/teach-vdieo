@@ -303,6 +303,12 @@ class VideoSelector(BaseTool):
             required = tool.input_schema.get("properties", {})
             if "query" in required and "query" not in adapted:
                 adapted["query"] = adapted.get("prompt", "")
+            if (
+                "model" in required
+                and "model" not in adapted
+                and adapted.get("model_name")
+            ):
+                adapted["model"] = adapted["model_name"]
 
         # Auto-resolve reference_image_path to a URL for providers that need it
         if adapted.get("operation") == "image_to_video" and adapted.get("reference_image_path"):

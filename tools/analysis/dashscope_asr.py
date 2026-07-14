@@ -14,16 +14,26 @@ transcription. Word timestamps are normalized from milliseconds to seconds.
 
 from __future__ import annotations
 
+import json
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from tools._dashscope.errors import (
+    DashscopeAPIError,
+    ensure_success,
+    safe_error_text,
+    tool_error_data,
+)
 
 from tools.base_tool import (
     BaseTool,
     Determinism,
     ExecutionMode,
     ResourceProfile,
+    ResumeSupport,
     RetryPolicy,
     ToolResult,
     ToolRuntime,
@@ -90,14 +100,30 @@ class DashscopeAsr(BaseTool):
                 "enum": ["qwen3-asr-flash-filetrans"],
                 "default": "qwen3-asr-flash-filetrans",
             },
-            "language_hints": {
-                "type": "array",
-                "items": {"type": "string"},
-                "default": ["zh", "en"],
+            "language": {
+                "type": "string",
+                "enum": [
+                    "zh", "yue", "en", "ja", "de", "ko", "ru", "fr",
+                    "pt", "ar", "it", "es", "hi", "id", "th", "tr",
+                    "uk", "vi", "cs", "da", "fil", "fi", "is", "ms",
+                    "no", "pl", "sv",
+                ],
                 "description": (
-                    "Language hints to improve accuracy. "
-                    'Examples: ["zh", "en", "ja"].'
+                    "Single known audio language supported by the official "
+                    "Filetrans API. Omit for automatic detection."
                 ),
+            },
+            "enable_itn": {
+                "type": "boolean",
+                "default": False,
+                "description": "Normalize spoken numbers into written form.",
+            },
+            "channel_id": {
+                "type": "array",
+                "items": {"type": "integer", "minimum": 0},
+                "default": [0],
+                "maxItems": 1,
+                "description": "Phase 1 processes one audio channel only.",
             },
             "enable_words": {
                 "type": "boolean",
@@ -105,6 +131,17 @@ class DashscopeAsr(BaseTool):
                 "description": (
                     "Enable word-level timestamps. Required for subtitle "
                     "alignment."
+                ),
+            },
+            "external_task_id": {
+                "type": "string",
+                "description": "Resume an existing DashScope ASR task ID.",
+            },
+            "task_state_path": {
+                "type": "string",
+                "description": (
+                    "Project-local durable task state used to prevent duplicate "
+                    "ASR submissions after interruption."
                 ),
             },
             "output_path": {"type": "string"},
@@ -129,7 +166,15 @@ class DashscopeAsr(BaseTool):
         backoff_seconds=2.0,
         retryable_errors=["timeout", "rate_limit"],
     )
-    idempotency_key_fields = ["audio_url", "model", "enable_words", "language_hints"]
+    resume_support = ResumeSupport.FROM_CHECKPOINT
+    idempotency_key_fields = [
+        "audio_url",
+        "model",
+        "enable_words",
+        "language",
+        "enable_itn",
+        "channel_id",
+    ]
     side_effects = [
         "writes transcription JSON to output_path",
         "calls DashScope (Alibaba Cloud) ASR API (async submit + poll)",
@@ -189,98 +234,266 @@ class DashscopeAsr(BaseTool):
         start = time.time()
         try:
             result = self._transcribe(inputs, api_key=api_key)
+        except DashscopeAPIError as exc:
+            return ToolResult(
+                success=False,
+                error=str(exc),
+                data=tool_error_data(exc),
+                duration_seconds=round(time.time() - start, 2),
+                model=str(inputs.get("model", "qwen3-asr-flash-filetrans")),
+            )
         except Exception as exc:
             return ToolResult(
                 success=False,
                 error=f"DashScope ASR failed: {self._safe_error(exc)}",
+                duration_seconds=round(time.time() - start, 2),
+                model=str(inputs.get("model", "qwen3-asr-flash-filetrans")),
             )
 
         result.duration_seconds = round(time.time() - start, 2)
         return result
 
+    @staticmethod
+    def _task_state_path(inputs: dict[str, Any]) -> Path:
+        configured = inputs.get("task_state_path")
+        if configured:
+            return Path(str(configured))
+        output_path = Path(str(inputs.get("output_path", "dashscope_asr.json")))
+        return output_path.with_suffix(output_path.suffix + ".task.json")
+
+    @classmethod
+    def _write_task_state(cls, path: Path, state: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "version": "1.0",
+            "provider": "dashscope",
+            "tool": cls.name,
+            **state,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(path)
+
+    @classmethod
+    def _read_task_state(cls, path: Path) -> dict[str, Any] | None:
+        if not path.exists():
+            return None
+        try:
+            state = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise RuntimeError(
+                "Existing DashScope ASR task state is unreadable; refusing a "
+                "duplicate submission."
+            ) from exc
+        if (
+            not isinstance(state, dict)
+            or state.get("provider") != "dashscope"
+            or state.get("tool") != cls.name
+        ):
+            raise RuntimeError(
+                "Existing ASR task state is invalid; refusing a duplicate "
+                "submission."
+            )
+        return state
+
     def _transcribe(
-        self, inputs: dict[str, Any], *, api_key: str
+        self,
+        inputs: dict[str, Any],
+        *,
+        api_key: str,
+        requests_module: Any | None = None,
     ) -> ToolResult:
-        import json
-        import requests
+        if requests_module is None:
+            import requests as requests_module
 
         payload = self._build_payload(inputs)
+        model = str(payload["model"])
+        output_path = Path(str(inputs.get("output_path", "dashscope_asr.json")))
+        task_state_path = self._task_state_path(inputs)
+        task_id = str(inputs.get("external_task_id") or "")
+        external_task_id = task_id or None
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
             "X-DashScope-Async": "enable",
         }
 
-        # Submit
-        submit_resp = requests.post(
-            self.SUBMIT_URL, headers=headers, json=payload, timeout=(10, 60)
-        )
-        submit_data = self._json_or_raise(submit_resp)
-        self._raise_for_error(submit_resp.status_code, submit_data)
+        try:
+            if not task_id:
+                existing_state = self._read_task_state(task_state_path)
+                if existing_state is not None:
+                    if existing_state.get("model") != model:
+                        raise RuntimeError(
+                            "Existing ASR task state targets a different model; "
+                            "refusing a possible duplicate submission."
+                        )
+                    persisted_task_id = str(
+                        existing_state.get("task_id") or ""
+                    )
+                    if persisted_task_id:
+                        task_id = persisted_task_id
+                        external_task_id = persisted_task_id
+                    else:
+                        raise RuntimeError(
+                            "Existing pre-submit ASR task state has no task ID; "
+                            "refusing a possible duplicate submission."
+                        )
 
-        task_id = submit_data.get("output", {}).get("task_id")
-        if not task_id:
-            raise RuntimeError(
-                "DashScope ASR submit succeeded but did not return "
-                "output.task_id"
+            if not task_id:
+                self._write_task_state(
+                    task_state_path,
+                    {
+                        "model": model,
+                        "task_id": None,
+                        "status": "ready_to_submit",
+                        "output_path": str(output_path),
+                    },
+                )
+                submit_resp = requests_module.post(
+                    self.SUBMIT_URL,
+                    headers=headers,
+                    json=payload,
+                    timeout=(10, 60),
+                )
+                submit_data = ensure_success(submit_resp)
+                task_id = str(
+                    submit_data.get("output", {}).get("task_id") or ""
+                )
+                if not task_id:
+                    raise RuntimeError(
+                        "DashScope ASR submit succeeded but did not return "
+                        "output.task_id"
+                    )
+                external_task_id = task_id
+                self._write_task_state(
+                    task_state_path,
+                    {
+                        "model": model,
+                        "task_id": task_id,
+                        "status": "submitted",
+                        "output_path": str(output_path),
+                    },
+                )
+            else:
+                self._write_task_state(
+                    task_state_path,
+                    {
+                        "model": model,
+                        "task_id": task_id,
+                        "status": "resuming",
+                        "output_path": str(output_path),
+                    },
+                )
+
+            poll_data = self._poll_task(
+                requests_module=requests_module,
+                api_key=api_key,
+                task_id=task_id,
+                poll_interval=float(inputs.get("poll_interval_seconds", 5.0)),
+                timeout_seconds=int(inputs.get("timeout_seconds", 300)),
             )
 
-        # Poll
-        poll_data = self._poll_task(
-            requests_module=requests,
-            api_key=api_key,
-            task_id=task_id,
-            poll_interval=float(inputs.get("poll_interval_seconds", 5.0)),
-            timeout_seconds=int(inputs.get("timeout_seconds", 300)),
-        )
+            # qwen3-asr-flash-filetrans returns output.result.transcription_url
+            # (singular "result", NOT "results" like paraformer-v2).
+            result = poll_data.get("output", {}).get("result", {})
+            transcription_url = result.get("transcription_url")
+            if not transcription_url:
+                raise RuntimeError(
+                    "DashScope ASR task succeeded but "
+                    "result.transcription_url missing"
+                )
 
-        # qwen3-asr-flash-filetrans returns output.result.transcription_url
-        # (singular "result", NOT "results" array like paraformer-v2)
-        result = poll_data.get("output", {}).get("result", {})
-        transcription_url = result.get("transcription_url")
-        if not transcription_url:
-            raise RuntimeError(
-                "DashScope ASR task succeeded but "
-                "result.transcription_url missing"
+            trans_resp = requests_module.get(transcription_url, timeout=120)
+            if int(getattr(trans_resp, "status_code", 0) or 0) >= 400:
+                ensure_success(trans_resp)
+            transcription = trans_resp.json()
+            if not isinstance(transcription, dict):
+                raise RuntimeError(
+                    "DashScope ASR transcription download was not a JSON object"
+                )
+
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            safe_transcription = self._sanitize_transcription_artifact(
+                transcription
+            )
+            output_path.write_text(
+                json.dumps(safe_transcription, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            self._write_task_state(
+                task_state_path,
+                {
+                    "model": model,
+                    "task_id": task_id,
+                    "status": "succeeded",
+                    "output_path": str(output_path),
+                },
             )
 
-        # Download transcription JSON
-        trans_resp = requests.get(transcription_url, timeout=120)
-        trans_resp.raise_for_status()
-        transcription = trans_resp.json()
-
-        # Save full transcription
-        output_path = Path(
-            inputs.get("output_path", "dashscope_asr.json")
-        )
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(
-            json.dumps(transcription, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-
-        # Parse word-level timestamps (normalize ms -> seconds)
-        words = self._extract_words(transcription)
-        transcripts = transcription.get("transcripts", [])
-
-        return ToolResult(
-            success=True,
-            data={
-                "provider": "dashscope",
-                "model": payload["model"],
-                "audio_url": inputs["audio_url"],
-                "task_id": task_id,
-                "transcripts": transcripts,
-                "words": words,
-                "word_count": len(words),
-                "output": str(output_path),
-            },
-            artifacts=[str(output_path)],
-            cost_usd=self.estimate_cost(inputs),
-            model=payload["model"],
-        )
+            words = self._extract_words(safe_transcription)
+            transcripts = safe_transcription.get("transcripts", [])
+            return ToolResult(
+                success=True,
+                data={
+                    "provider": "dashscope",
+                    "model": model,
+                    "audio_source": "temporary_url",
+                    "task_id": task_id,
+                    "external_task_id": external_task_id,
+                    "task_state_path": str(task_state_path),
+                    "transcripts": transcripts,
+                    "words": words,
+                    "word_count": len(words),
+                    "output": str(output_path),
+                },
+                artifacts=[str(output_path)],
+                cost_usd=self.estimate_cost(inputs),
+                model=model,
+            )
+        except DashscopeAPIError as exc:
+            if task_id:
+                try:
+                    self._write_task_state(
+                        task_state_path,
+                        {
+                            "model": model,
+                            "task_id": task_id,
+                            "status": "failed",
+                            "error_code": exc.code,
+                            "output_path": str(output_path),
+                        },
+                    )
+                except OSError:
+                    pass
+            raise
+        except Exception:
+            if task_id:
+                try:
+                    self._write_task_state(
+                        task_state_path,
+                        {
+                            "model": model,
+                            "task_id": task_id,
+                            "status": "interrupted",
+                            "output_path": str(output_path),
+                        },
+                    )
+                except OSError:
+                    pass
+            raise
 
     def _build_payload(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        parameters: dict[str, Any] = {
+            "enable_words": bool(inputs.get("enable_words", True)),
+            "enable_itn": bool(inputs.get("enable_itn", False)),
+            "channel_id": list(inputs.get("channel_id", [0])),
+        }
+        if inputs.get("language"):
+            parameters["language"] = str(inputs["language"])
         return {
             "model": inputs.get(
                 "model", "qwen3-asr-flash-filetrans"
@@ -288,13 +501,26 @@ class DashscopeAsr(BaseTool):
             "input": {
                 "file_url": inputs["audio_url"],
             },
-            "parameters": {
-                "enable_words": bool(inputs.get("enable_words", True)),
-                "language_hints": inputs.get(
-                    "language_hints", ["zh", "en"]
-                ),
-            },
+            "parameters": parameters,
         }
+
+    @classmethod
+    def _sanitize_transcription_artifact(cls, value: Any) -> Any:
+        """Remove temporary provider URLs before persisting ASR output."""
+
+        if isinstance(value, dict):
+            sanitized: dict[str, Any] = {}
+            for key, item in value.items():
+                lowered = str(key).casefold()
+                if lowered.endswith("url") or lowered.endswith("_url"):
+                    continue
+                sanitized[str(key)] = cls._sanitize_transcription_artifact(item)
+            return sanitized
+        if isinstance(value, list):
+            return [cls._sanitize_transcription_artifact(item) for item in value]
+        if isinstance(value, str) and value.startswith(("http://", "https://")):
+            return "[redacted-url]"
+        return value
 
     def _poll_task(
         self,
@@ -314,17 +540,25 @@ class DashscopeAsr(BaseTool):
                 headers=headers,
                 timeout=(10, 60),
             )
-            data = self._json_or_raise(resp)
-            self._raise_for_error(resp.status_code, data)
-            status = data.get("output", {}).get("task_status")
+            data = ensure_success(resp)
+            output = data.get("output", {})
+            status = str(output.get("task_status", "")).upper()
             if status == "SUCCEEDED":
                 return data
-            if status == "FAILED":
-                msg = data.get("output", {}).get(
-                    "message", "unknown error"
+            if status in {"FAILED", "CANCELED", "UNKNOWN"}:
+                code = str(output.get("code") or status)
+                message = str(
+                    output.get("message") or f"ASR task {status.lower()}"
                 )
-                raise RuntimeError(
-                    f"DashScope ASR task failed: {msg}"
+                raise DashscopeAPIError(
+                    http_status=(
+                        403
+                        if code == "AllocationQuota.FreeTierOnly"
+                        else 400
+                    ),
+                    code=code,
+                    message=message,
+                    request_id=data.get("request_id"),
                 )
         raise TimeoutError(
             f"DashScope ASR task {task_id} did not finish within "
@@ -358,29 +592,5 @@ class DashscopeAsr(BaseTool):
         return words
 
     @staticmethod
-    def _json_or_raise(response: Any) -> dict[str, Any]:
-        try:
-            return response.json()
-        except ValueError as exc:
-            raise RuntimeError(
-                f"Non-JSON response from DashScope API: "
-                f"HTTP {response.status_code}"
-            ) from exc
-
-    def _raise_for_error(
-        self, http_status: int, payload: dict[str, Any]
-    ) -> None:
-        if http_status < 400:
-            return
-        code = payload.get("code")
-        message = payload.get("message", "unknown error")
-        raise RuntimeError(
-            f"DashScope API error: HTTP {http_status}, "
-            f"code {code}: {message}"
-        )
-
-    @staticmethod
     def _safe_error(exc: Exception) -> str:
-        return str(exc).replace(
-            os.environ.get("DASHSCOPE_API_KEY", ""), "[redacted]"
-        )
+        return safe_error_text(exc)

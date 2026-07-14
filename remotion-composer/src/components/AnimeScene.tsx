@@ -21,7 +21,7 @@ function resolveAsset(src: string): string {
   ) {
     return src;
   }
-  const clean = src.replace(/^file:\/\/\/?/, "");
+  const clean = src.replace(/^file:\/\//, "");
   return staticFile(clean);
 }
 
