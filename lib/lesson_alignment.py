@@ -32,6 +32,11 @@ def _canonical_aliases(token: str) -> set[str]:
                 "nineteenzeroone",
                 "nineteenhundredone",
                 "nineteenhundredandone",
+                # qwen3-asr Filetrans with ITN can split "nineteen oh one"
+                # into the two tokens "1000" + "901".  Treat the combined
+                # provider representation as timing evidence for the locked
+                # canonical year; captions still render the source token.
+                "1000901",
             }
         )
     return aliases
