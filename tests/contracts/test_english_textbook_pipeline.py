@@ -167,6 +167,37 @@ def test_new_artifacts_are_registered_and_validate():
     validate_artifact("narration_timeline", _narration_timeline())
 
 
+def test_decision_log_accepts_full_run_preapproval_policy():
+    validate_artifact(
+        "decision_log",
+        {
+            "version": "1.0",
+            "project_id": "english-textbook-phase1",
+            "decisions": [
+                {
+                    "decision_id": "d-approval-001",
+                    "stage": "idea",
+                    "category": "approval_policy",
+                    "subject": "Human approval policy for the 10-second validation run",
+                    "options_considered": [
+                        {
+                            "option_id": "full-run-preauthorized",
+                            "label": "Full run preauthorized",
+                            "score": 1.0,
+                            "reason": "The user explicitly preauthorized the complete validation run.",
+                        }
+                    ],
+                    "selected": "full-run-preauthorized",
+                    "reason": "Record the user's explicit authorization so later gates remain auditable.",
+                    "user_visible": True,
+                    "user_approved": True,
+                    "confidence": 1.0,
+                }
+            ],
+        },
+    )
+
+
 @pytest.mark.parametrize(
     ("artifact_name", "artifact"),
     [
