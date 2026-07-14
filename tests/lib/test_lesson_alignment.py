@@ -57,6 +57,34 @@ def test_aligns_duplicate_contractions_and_spoken_1901_to_canonical_words():
     assert aligned[-1]["end_ms"] - aligned[-1]["start_ms"] == 750
 
 
+def test_aligns_dashscope_itn_split_1901_to_canonical_year():
+    raw = _raw_fixture()[:-3]
+    start = raw[-1]["end_time_seconds"]
+    raw.extend(
+        [
+            {
+                "text": "1000",
+                "begin_time_seconds": start,
+                "end_time_seconds": start + 0.4,
+            },
+            {
+                "text": "901",
+                "begin_time_seconds": start + 0.4,
+                "end_time_seconds": start + 0.88,
+            },
+        ]
+    )
+
+    aligned = align_asr_words(SOURCE, raw)
+
+    assert [word["text"] for word in aligned] == SOURCE.split()
+    assert aligned[-1] == {
+        "text": "1901.",
+        "start_ms": round(start * 1000),
+        "end_ms": round((start + 0.88) * 1000),
+    }
+
+
 def test_alignment_rejects_reordered_or_hallucinated_asr_words():
     raw = _raw_fixture()
     raw[0]["text"] = "After"
