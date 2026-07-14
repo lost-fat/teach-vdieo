@@ -1,0 +1,15 @@
+{
+  "title": "Mombasa to Nairobi transport links",
+  "source_text": "Before then, the only transport links between Mombasa, Kenya's main port, and Nairobi, Kenya's capital, were rough roads and an old railway line completed in 1901.",
+  "language": "en",
+  "target_duration_seconds": 10,
+  "provider": "dashscope",
+  "region": "cn-beijing",
+  "models": {
+    "text": "qwen3.7-plus",
+    "image": "qwen-image-2.0-pro",
+    "video": "wan2.6-i2v-flash",
+    "tts": "qwen3-tts-vd-2026-01-26",
+    "asr": "qwen3-asr-flash-filetrans"
+  }
+}
