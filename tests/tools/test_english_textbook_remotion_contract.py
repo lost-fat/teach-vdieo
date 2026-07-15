@@ -346,6 +346,8 @@ def test_strict_final_review_passes_exact_delivery_contract(tmp_path, monkeypatc
     assert review["issues_found"] == []
     assert review["checks"]["subtitle_check"]["coverage_ratio"] == 1.0
     assert review["checks"]["transcript_comparison"]["word_accuracy"] == 1.0
+    assert review["checks"]["audio_spotcheck"]["narration_present"] is True
+    assert review["checks"]["audio_spotcheck"]["music_present"] is False
 
 
 def test_high_level_render_blocks_revise_review(tmp_path, monkeypatch):
