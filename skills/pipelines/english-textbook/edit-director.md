@@ -7,7 +7,7 @@ Use to combine the approved motion asset, narration, and canonical word timings 
 ## Process
 
 1. Carry `lesson_plan.render.runtime` forward unchanged as `render_runtime`.
-2. Set the motion clip as the primary cut from 0 to 10 seconds.
+2. Set the motion clip as one primary cut from 0 to 10 seconds. When one source spans multiple visual beats, express wide-to-medium-to-close reframing through `transform.keyframes` inside that single cut; do not remount the same source merely to change framing.
 3. Place narration at zero; retain any approved end silence and do not trim spoken words.
 4. Generate caption data from canonical `narration_timeline.words`, using ASR only for their aligned time ranges.
 5. Configure subtitles as enabled, `word-by-word`, English, title-safe, high contrast, and no more than six words per page.
@@ -25,4 +25,5 @@ Use to combine the approved motion asset, narration, and canonical word timings 
 
 - Feeding raw ASR text to the renderer.
 - Mutating the approved runtime in edit.
+- Splitting one continuous source into adjacent hard cuts solely to create virtual-camera punch-ins; this remounts the decoder and can create visible stutters.
 - Hiding an overlong narration by clipping its ending.
