@@ -1,6 +1,7 @@
 import {
   AbsoluteFill,
   Audio,
+  Easing,
   Img,
   OffthreadVideo,
   Sequence,
@@ -266,6 +267,11 @@ interface Cut {
     end_scale?: number;
     start_position?: { x: number; y: number };
     end_position?: { x: number; y: number };
+    keyframes?: Array<{
+      at_seconds: number;
+      scale: number;
+      position: { x: number; y: number };
+    }>;
   };
   // Anime scene props (type: "anime_scene")
   images?: string[];
@@ -464,17 +470,40 @@ const VideoScene: React.FC<{
   const endScale = transform?.end_scale ?? startScale;
   const startPosition = transform?.start_position ?? { x: 50, y: 50 };
   const endPosition = transform?.end_position ?? startPosition;
-  const scale = interpolate(progress, [0, 1], [startScale, endScale]);
-  const positionX = interpolate(
-    progress,
-    [0, 1],
-    [startPosition.x, endPosition.x]
-  );
-  const positionY = interpolate(
-    progress,
-    [0, 1],
-    [startPosition.y, endPosition.y]
-  );
+  const cameraKeyframes = transform?.keyframes;
+  const hasCameraKeyframes = Boolean(cameraKeyframes && cameraKeyframes.length >= 2);
+  const cameraInputRange = hasCameraKeyframes
+    ? cameraKeyframes!.map((keyframe) => keyframe.at_seconds * fps)
+    : [0, Math.max(1, durationInFrames - 1)];
+  const cameraOptions = {
+    easing: Easing.inOut(Easing.sin),
+    extrapolateLeft: "clamp" as const,
+    extrapolateRight: "clamp" as const,
+  };
+  const scale = hasCameraKeyframes
+    ? interpolate(
+        frame,
+        cameraInputRange,
+        cameraKeyframes!.map((keyframe) => keyframe.scale),
+        cameraOptions
+      )
+    : interpolate(progress, [0, 1], [startScale, endScale]);
+  const positionX = hasCameraKeyframes
+    ? interpolate(
+        frame,
+        cameraInputRange,
+        cameraKeyframes!.map((keyframe) => keyframe.position.x),
+        cameraOptions
+      )
+    : interpolate(progress, [0, 1], [startPosition.x, endPosition.x]);
+  const positionY = hasCameraKeyframes
+    ? interpolate(
+        frame,
+        cameraInputRange,
+        cameraKeyframes!.map((keyframe) => keyframe.position.y),
+        cameraOptions
+      )
+    : interpolate(progress, [0, 1], [startPosition.y, endPosition.y]);
 
   return (
     <AbsoluteFill style={{ background: "#0F172A", overflow: "hidden" }}>

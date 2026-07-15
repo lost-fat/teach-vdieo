@@ -53,6 +53,29 @@
                 },
                 "additionalProperties": false
               },
+              "keyframes": {
+                "type": "array",
+                "description": "Piecewise camera path evaluated within one mounted video instance.",
+                "minItems": 2,
+                "items": {
+                  "type": "object",
+                  "required": ["at_seconds", "scale", "position"],
+                  "properties": {
+                    "at_seconds": { "type": "number", "minimum": 0 },
+                    "scale": { "type": "number", "minimum": 0.1, "maximum": 4 },
+                    "position": {
+                      "type": "object",
+                      "required": ["x", "y"],
+                      "properties": {
+                        "x": { "type": "number", "minimum": 0, "maximum": 100 },
+                        "y": { "type": "number", "minimum": 0, "maximum": 100 }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
               "animation": {
                 "type": "string",
                 "description": "Motion applied to still images (e.g. ken-burns-slow-zoom, pan-left, static)"
