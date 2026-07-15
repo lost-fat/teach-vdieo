@@ -8,6 +8,85 @@
   "properties": {
     "version": { "type": "string", "const": "1.0" },
     "style_playbook": { "type": "string", "description": "Name of the active style playbook" },
+    "narrative_units": {
+      "type": "array",
+      "description": "Meaning-level source units. They guide timing and teaching structure but do not force one generated clip per unit.",
+      "items": {
+        "type": "object",
+        "required": ["id", "source_text", "start_seconds", "end_seconds", "discourse_role"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "source_text": { "type": "string", "minLength": 1 },
+          "start_seconds": { "type": "number", "minimum": 0 },
+          "end_seconds": { "type": "number", "minimum": 0 },
+          "discourse_role": {
+            "type": "string",
+            "enum": ["setting", "movement", "comparison", "cause_effect", "process", "historical_event", "abstract_concept", "dialogue", "transition"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "continuity_bible": {
+      "type": "object",
+      "description": "Article-level visual invariants reused by every scene and provider prompt.",
+      "required": ["entities", "locations", "period", "style", "camera_rules", "prohibited_elements"],
+      "properties": {
+        "entities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/continuitySubject" }
+        },
+        "locations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/continuitySubject" }
+        },
+        "period": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["id", "label", "immutable_traits"],
+              "properties": {
+                "id": { "type": "string", "minLength": 1 },
+                "label": { "type": "string", "minLength": 1 },
+                "immutable_traits": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 },
+                  "uniqueItems": true
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "style": {
+          "type": "object",
+          "required": ["palette", "lighting", "texture"],
+          "properties": {
+            "palette": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "lighting": { "type": "string", "minLength": 1 },
+            "texture": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "camera_rules": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "prohibited_elements": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
     "scenes": {
       "type": "array",
       "items": {
@@ -22,6 +101,55 @@
           "description": { "type": "string" },
           "start_seconds": { "type": "number", "minimum": 0 },
           "end_seconds": { "type": "number", "minimum": 0 },
+          "narrative_unit_ids": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 },
+            "minItems": 1,
+            "uniqueItems": true,
+            "description": "One scene may cover multiple adjacent meaning units when visual context remains continuous."
+          },
+          "visual_role": {
+            "type": "string",
+            "enum": ["setting", "movement", "comparison", "cause_effect", "process", "historical_event", "abstract_concept", "dialogue", "transition"]
+          },
+          "video_prompt_spec": {
+            "type": "object",
+            "description": "Provider-neutral motion plan compiled into a model-specific prompt at generation time.",
+            "required": ["single_shot", "subject_motion", "camera_motion", "temporal_beats", "continuity_refs", "negative_constraints"],
+            "properties": {
+              "single_shot": { "type": "boolean" },
+              "subject_motion": { "type": "string", "minLength": 1 },
+              "camera_motion": { "type": "string", "minLength": 1 },
+              "temporal_beats": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "required": ["start_seconds", "end_seconds", "action"],
+                  "properties": {
+                    "start_seconds": { "type": "number", "minimum": 0 },
+                    "end_seconds": { "type": "number", "minimum": 0 },
+                    "action": { "type": "string", "minLength": 1 }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "foreground_event": { "type": "string", "minLength": 1 },
+              "visual_payoff": { "type": "string", "minLength": 1 },
+              "continuity_refs": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "uniqueItems": true
+              },
+              "caption_safe_area": { "type": "string", "minLength": 1 },
+              "negative_constraints": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "uniqueItems": true
+              }
+            },
+            "additionalProperties": false
+          },
           "script_section_id": { "type": "string" },
           "framing": { "type": "string" },
           "movement": { "type": "string" },
@@ -112,6 +240,26 @@
       "minItems": 1
     },
     "metadata": { "type": "object" }
+  },
+  "$defs": {
+    "continuitySubject": {
+      "type": "object",
+      "required": ["id", "canonical_name", "immutable_traits"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "canonical_name": { "type": "string", "minLength": 1 },
+        "translations": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "immutable_traits": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }

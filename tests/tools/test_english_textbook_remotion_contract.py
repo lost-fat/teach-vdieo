@@ -146,6 +146,29 @@ def test_bilingual_caption_guard_catches_factuality_segmentation_and_load():
     assert any("in 1901" in issue for issue in issues)
 
 
+def test_bilingual_caption_guard_reads_page_level_translation_text():
+    decisions = _edit_decisions()
+    decisions["captions"] = [
+        {"word": "Mombasa,", "startMs": 0, "endMs": 500},
+        {"word": "Kenya", "startMs": 500, "endMs": 900},
+    ]
+    decisions["caption_groups"] = [
+        {
+            "id": "cg-001",
+            "startMs": 0,
+            "endMs": 900,
+            "startWordIndex": 0,
+            "endWordIndex": 2,
+            "translationText": "巴萨，肯尼亚",
+        }
+    ]
+    decisions["metadata"]["translation_glossary"] = {"Mombasa": "蒙巴萨"}
+
+    issues = VideoCompose._bilingual_caption_issues(decisions)
+
+    assert any("Mombasa" in issue and "蒙巴萨" in issue for issue in issues)
+
+
 def test_bilingual_caption_layout_is_compact_and_hierarchical():
     source = (
         Path(__file__).resolve().parent.parent.parent

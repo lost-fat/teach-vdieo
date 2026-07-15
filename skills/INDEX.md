@@ -136,18 +136,18 @@ Pipeline type skills provide production guidance for specific video formats, ind
 
 Stage director skills teach the agent HOW to execute each pipeline stage. Each skill is a detailed markdown file with process steps, quality rubrics, and self-evaluation criteria.
 
-### English Textbook Pipeline (`pipelines/english-textbook/`) — Phase 1
+### English Textbook Pipeline (`pipelines/english-textbook/`) — Verification + Article Mode
 
 | Skill | File | Stage | Key Capabilities |
 |-------|------|-------|-----------------|
 | **Executive Producer** | `pipelines/english-textbook/executive-producer.md` | `all` | Source-hash continuity, audio-first orchestration, quota-safe gates |
 | Ingest Director | `pipelines/english-textbook/ingest-director.md` | `ingest` | Verbatim source locking, approved normalization, SHA-256 |
 | Idea Director | `pipelines/english-textbook/idea-director.md` | `idea` | Lesson plan, API lock, runtime and music decisions |
-| Script Director | `pipelines/english-textbook/script-director.md` | `script` | Grammar-safe units and exact source coverage |
+| Script Director | `pipelines/english-textbook/script-director.md` | `script` | Grammar-safe units, protected spans, and exact source coverage |
 | Narration Director | `pipelines/english-textbook/narration-director.md` | `narration` | Voice reuse, measured audio, canonical word alignment |
-| Scene Director | `pipelines/english-textbook/scene-director.md` | `scene_plan` | Narration-timed visual beats and caption-safe framing |
-| Asset Director | `pipelines/english-textbook/asset-director.md` | `assets` | Locked DashScope image/video calls and resumable task polling |
-| Edit Director | `pipelines/english-textbook/edit-director.md` | `edit` | Canonical word captions and ten-second timeline assembly |
+| Scene Director | `pipelines/english-textbook/scene-director.md` | `scene_plan` | Narrative-unit grouping, continuity bible, and structured motion plans |
+| Asset Director | `pipelines/english-textbook/asset-director.md` | `assets` | Continuity-controlled DashScope image/video calls and resumable polling |
+| Edit Director | `pipelines/english-textbook/edit-director.md` | `edit` | Semantic bilingual caption pages and measured article assembly |
 | Compose Director | `pipelines/english-textbook/compose-director.md` | `compose` | Runtime routing, 1080p render, audiovisual verification |
 | Publish Director | `pipelines/english-textbook/publish-director.md` | `publish` | Local delivery packaging, provenance, and secret redaction |
 

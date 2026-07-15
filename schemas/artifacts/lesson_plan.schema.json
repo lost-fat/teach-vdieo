@@ -7,6 +7,22 @@
   "properties": {
     "version": { "type": "string", "const": "1.0" },
     "source_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "delivery_mode": {
+      "type": "string",
+      "enum": ["phase1_verification", "article"],
+      "default": "phase1_verification"
+    },
+    "duration_policy": {
+      "type": "object",
+      "required": ["mode", "clip_target_seconds", "clip_max_seconds"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["fixed", "narration_measured"] },
+        "clip_target_seconds": { "type": "number", "minimum": 1 },
+        "clip_max_seconds": { "type": "number", "minimum": 1 },
+        "fixed_duration_seconds": { "type": "number", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
     "audience": {
       "type": "object",
       "required": ["level", "description"],

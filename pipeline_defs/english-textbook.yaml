@@ -1,6 +1,6 @@
 name: english-textbook
-version: "0.1"
-description: Source-faithful English textbook video with measured narration and word-highlight captions.
+version: "0.2"
+description: Source-faithful English textbook article video with measured narration, semantic bilingual captions, and continuity-controlled scenes.
 category: custom
 stability: beta
 default_checkpoint_policy: guided
@@ -40,7 +40,8 @@ compatible_playbooks:
   custom_allowed: false
 
 metadata:
-  phase: 1
+  modes: [phase1_verification, article]
+  default_mode: article
   source_policy: verbatim
   api_contract:
     provider: dashscope
@@ -78,7 +79,7 @@ stages:
     checkpoint_required: true
     human_approval_default: true
     review_focus:
-      - Audience and ten-second acceptance target are explicit
+      - Audience, delivery mode, and duration policy are explicit
       - Provider models and free-tier-only policy match the approved contract
       - Runtime and composition mode are explicit and auditable
     success_criteria:
@@ -95,7 +96,7 @@ stages:
     human_approval_default: true
     review_focus:
       - Narration preserves canonical source wording and order
-      - Unit boundaries are grammar-safe
+      - Unit boundaries and protected spans are grammar-safe
       - Character ranges cover the source exactly once
     success_criteria:
       - Schema-valid script
@@ -131,7 +132,8 @@ stages:
     human_approval_default: true
     review_focus:
       - Visual beats follow measured narration timing
-      - One coherent ten-second concept covers the passage
+      - Adjacent narrative units share a scene until context changes or the provider clip limit is reached
+      - Continuity IDs and provider-neutral motion beats are explicit
       - Generated imagery contains no readable text
     success_criteria:
       - Schema-valid scene_plan
@@ -152,7 +154,7 @@ stages:
       - Wan output is real motion with generated audio disabled
     success_criteria:
       - Schema-valid asset_manifest
-      - Approved image and ten-second 1080P motion clip exist
+      - Approved 1080P motion clips cover the planned article scenes
 
   - name: edit
     skill: pipelines/english-textbook/edit-director
@@ -164,7 +166,8 @@ stages:
     human_approval_default: false
     review_focus:
       - Canonical timings drive active-word highlighting
-      - Audio and visuals fit the exact ten-second canvas
+      - Audio and visuals fit the selected measured or fixed canvas
+      - Subtitle pages follow semantic word-index ranges and planned line breaks
       - Runtime remains the approved runtime
     success_criteria:
       - Schema-valid edit_decisions
@@ -181,7 +184,7 @@ stages:
     human_approval_default: false
     review_focus:
       - Output is a 1920x1080 H.264 MP4 with narration audio
-      - Measured duration is between 9.90 and 10.10 seconds
+      - Measured duration is within the selected duration policy
       - Word-highlight captions are readable and synchronized
     success_criteria:
       - Schema-valid render_report and final_review

@@ -164,3 +164,110 @@ def build_batch_prompts(
             "hero_moment": scene.get("hero_moment", False),
         })
     return results
+
+
+def _format_seconds(value: Any) -> str:
+    number = float(value)
+    return str(int(number)) if number.is_integer() else f"{number:g}"
+
+
+def _continuity_descriptions(
+    refs: list[str], continuity_bible: dict[str, Any]
+) -> list[str]:
+    """Resolve provider-neutral continuity IDs into concise prompt anchors."""
+
+    indexed: dict[str, dict[str, Any]] = {}
+    for collection in ("entities", "locations"):
+        for item in continuity_bible.get(collection, []) or []:
+            if isinstance(item, dict) and item.get("id"):
+                indexed[str(item["id"])] = item
+    period = continuity_bible.get("period")
+    if isinstance(period, dict) and period.get("id"):
+        indexed[str(period["id"])] = period
+
+    descriptions: list[str] = []
+    for ref in refs:
+        item = indexed.get(str(ref))
+        if not item:
+            raise ValueError(f"unknown continuity reference: {ref}")
+        name = item.get("canonical_name", item.get("label", ref))
+        traits = [str(value) for value in item.get("immutable_traits", [])]
+        descriptions.append(
+            f"{name} ({', '.join(traits)})" if traits else str(name)
+        )
+    return descriptions
+
+
+def _bounded_text(parts: list[str], limit: int) -> str:
+    """Join complete prompt clauses without cutting a word in half."""
+
+    output = ""
+    for part in (value.strip() for value in parts if value and value.strip()):
+        candidate = f"{output} {part}".strip()
+        if len(candidate) <= limit:
+            output = candidate
+            continue
+        if not output:
+            return part[:limit].rsplit(" ", 1)[0].rstrip(" ,;:")
+        break
+    return output
+
+
+def build_video_prompt(
+    scene: dict[str, Any],
+    continuity_bible: dict[str, Any] | None = None,
+    *,
+    provider: str = "generic",
+) -> dict[str, str]:
+    """Compile a provider-neutral motion plan into video prompt fields.
+
+    Image-to-video already receives subject, scene, and style from its first
+    frame.  This compiler therefore prioritizes temporal action and camera
+    choreography, keeps exclusions in ``negative_prompt``, and resolves only
+    the continuity anchors explicitly referenced by the scene.
+    """
+
+    if provider not in {"generic", "wan-i2v"}:
+        raise ValueError(f"unsupported video prompt provider: {provider}")
+    spec = scene.get("video_prompt_spec")
+    if not isinstance(spec, dict):
+        raise ValueError("scene.video_prompt_spec must be an object")
+
+    parts: list[str] = []
+    if spec.get("single_shot"):
+        parts.append("Generate a single continuous shot.")
+
+    continuity = _continuity_descriptions(
+        [str(value) for value in spec.get("continuity_refs", [])],
+        continuity_bible or {},
+    )
+    if continuity:
+        parts.append(f"Preserve continuity: {'; '.join(continuity)}.")
+    if spec.get("subject_motion"):
+        parts.append(f"Subject motion: {spec['subject_motion']}")
+    if spec.get("camera_motion"):
+        parts.append(f"Camera motion: {spec['camera_motion']}")
+
+    for beat in spec.get("temporal_beats", []) or []:
+        start = _format_seconds(beat["start_seconds"])
+        end = _format_seconds(beat["end_seconds"])
+        parts.append(f"[{start}-{end}s] {str(beat['action']).strip()}")
+
+    if spec.get("foreground_event"):
+        parts.append(f"Foreground event: {spec['foreground_event']}")
+    if spec.get("visual_payoff"):
+        parts.append(f"Visual payoff: {spec['visual_payoff']}")
+
+    if spec.get("caption_safe_area"):
+        parts.append(str(spec["caption_safe_area"]).strip())
+
+    prompt_limit = 1500 if provider == "wan-i2v" else 4000
+    negative_limit = 500 if provider == "wan-i2v" else 2000
+    negative = _bounded_text(
+        [", ".join(str(value) for value in spec.get("negative_constraints", []))],
+        negative_limit,
+    )
+    return {
+        "prompt": _bounded_text(parts, prompt_limit),
+        "negative_prompt": negative,
+    }

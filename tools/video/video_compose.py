@@ -1309,7 +1309,34 @@ class VideoCompose(BaseTool):
     ) -> list[str]:
         """Return factuality, segmentation, and readability caption issues."""
 
-        translations = edit_decisions.get("translations") or []
+        legacy_translations = edit_decisions.get("translations") or []
+        groups = edit_decisions.get("caption_groups") or []
+        translations: list[dict[str, Any]] = []
+        has_page_translations = any(
+            str(group.get("translationText", "")).strip() for group in groups
+        )
+        if has_page_translations:
+            for group in groups:
+                page_text = str(group.get("translationText", "")).strip()
+                if page_text:
+                    translations.append(
+                        {
+                            "text": page_text,
+                            "startMs": group.get("startMs", 0),
+                            "endMs": group.get("endMs", 0),
+                        }
+                    )
+                    continue
+                start_ms = int(group.get("startMs", 0))
+                end_ms = int(group.get("endMs", 0))
+                translations.extend(
+                    item
+                    for item in legacy_translations
+                    if int(item.get("startMs", 0)) < end_ms
+                    and int(item.get("endMs", 0)) > start_ms
+                )
+        else:
+            translations = list(legacy_translations)
         if not translations:
             return []
 
@@ -1350,7 +1377,6 @@ class VideoCompose(BaseTool):
             previous_end = end_ms
 
         captions = edit_decisions.get("captions") or []
-        groups = edit_decisions.get("caption_groups") or []
         if groups:
             membership = [0 for _ in captions]
             previous_end = -1
@@ -1362,11 +1388,22 @@ class VideoCompose(BaseTool):
                         f"English caption group {index} has overlapping or invalid timing."
                     )
                 previous_end = end_ms
-                page_indices = [
-                    word_index
-                    for word_index, word in enumerate(captions)
-                    if start_ms <= int(word.get("startMs", 0)) < end_ms
-                ]
+                start_word = group.get("startWordIndex")
+                end_word = group.get("endWordIndex")
+                if isinstance(start_word, int) and isinstance(end_word, int):
+                    if start_word < 0 or end_word <= start_word or end_word > len(captions):
+                        issues.append(
+                            f"English caption group {index} has an invalid word-index range."
+                        )
+                        page_indices = []
+                    else:
+                        page_indices = list(range(start_word, end_word))
+                else:
+                    page_indices = [
+                        word_index
+                        for word_index, word in enumerate(captions)
+                        if start_ms <= int(word.get("startMs", 0)) < end_ms
+                    ]
                 for word_index in page_indices:
                     membership[word_index] += 1
                 page_words = [

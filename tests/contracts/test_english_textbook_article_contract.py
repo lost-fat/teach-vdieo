@@ -2,7 +2,46 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from schemas.artifacts import validate_artifact
+
+
+def test_lesson_plan_can_lock_article_mode_to_measured_narration():
+    source = "Rain fell for several days. As a result, the river rose quickly."
+    plan = {
+        "version": "1.0",
+        "source_sha256": hashlib.sha256(source.encode("utf-8")).hexdigest(),
+        "delivery_mode": "article",
+        "duration_policy": {
+            "mode": "narration_measured",
+            "clip_target_seconds": 10,
+            "clip_max_seconds": 15,
+        },
+        "audience": {"level": "A2-B1", "description": "English learners"},
+        "target_duration_seconds": 12,
+        "caption": {"language": "en", "mode": "word_highlight"},
+        "voice": {
+            "profile": "english_teacher_female",
+            "model": "qwen3-tts-vd-2026-01-26",
+            "language_type": "English",
+        },
+        "visual": {
+            "style_playbook": "esl-cinematic-editorial",
+            "image_model": "qwen-image-2.0-pro",
+            "video_model": "wan2.6-i2v-flash",
+        },
+        "render": {
+            "runtime": "remotion",
+            "composition_mode": "templated",
+            "resolution": "1920x1080",
+            "fps": 30,
+        },
+        "music": {"source": "none", "reason": "Keep the lesson voice clear"},
+        "quota_policy": {"free_tier_only": True, "paid_spend_cap": 0},
+    }
+
+    validate_artifact("lesson_plan", plan)
 
 
 def test_scene_plan_accepts_multiple_narrative_units_and_continuity_bible():
@@ -107,4 +146,3 @@ def test_edit_decisions_accepts_word_indexed_caption_pages_and_line_breaks():
     }
 
     validate_artifact("edit_decisions", decisions)
-

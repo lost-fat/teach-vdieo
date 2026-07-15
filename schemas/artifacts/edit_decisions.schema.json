@@ -231,7 +231,28 @@
         "properties": {
           "id": { "type": "string", "minLength": 1 },
           "startMs": { "type": "integer", "minimum": 0 },
-          "endMs": { "type": "integer", "minimum": 1 }
+          "endMs": { "type": "integer", "minimum": 1 },
+          "startWordIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Inclusive index into the canonical captions array."
+          },
+          "endWordIndex": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Exclusive index into the canonical captions array."
+          },
+          "lineBreakAfterWordIndices": {
+            "type": "array",
+            "items": { "type": "integer", "minimum": 0 },
+            "uniqueItems": true,
+            "description": "Absolute caption word indices after which Remotion inserts a line break."
+          },
+          "translationText": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Page-level teaching translation aligned to this complete English meaning group."
+          }
         },
         "additionalProperties": false
       }

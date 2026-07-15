@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from lib.shot_prompt_builder import build_video_prompt
 
 
@@ -97,3 +99,20 @@ def test_prompt_compiler_is_content_agnostic():
     assert "Mombasa" not in compiled["prompt"]
     assert "Water rises through the plant stem" in compiled["prompt"]
 
+
+def test_prompt_compiler_rejects_an_unknown_continuity_reference():
+    scene = {
+        "video_prompt_spec": {
+            "single_shot": True,
+            "subject_motion": "The subject crosses the room.",
+            "camera_motion": "The camera tracks alongside.",
+            "temporal_beats": [
+                {"start_seconds": 0, "end_seconds": 5, "action": "The action unfolds."}
+            ],
+            "continuity_refs": ["missing-entity"],
+            "negative_constraints": [],
+        }
+    }
+
+    with pytest.raises(ValueError, match="missing-entity"):
+        build_video_prompt(scene, {}, provider="wan-i2v")

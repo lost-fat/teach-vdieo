@@ -24,6 +24,10 @@ export interface CaptionGroup {
   id: string;
   startMs: number;
   endMs: number;
+  startWordIndex?: number;
+  endWordIndex?: number;
+  lineBreakAfterWordIndices?: number[];
+  translationText?: string;
 }
 
 interface CaptionOverlayProps {
@@ -43,8 +47,11 @@ interface CaptionOverlayProps {
 
 interface CaptionPage {
   words: WordCaption[];
+  wordIndices: number[];
   startMs: number;
   endMs: number;
+  lineBreakAfterWordIndices: number[];
+  translationText?: string;
 }
 
 function buildPages(
@@ -54,14 +61,27 @@ function buildPages(
 ): CaptionPage[] {
   if (groups.length > 0) {
     return groups.flatMap((group) => {
-      const pageWords = words.filter(
-        (word) => word.startMs >= group.startMs && word.startMs < group.endMs
-      );
+      const hasWordRange =
+        Number.isInteger(group.startWordIndex) &&
+        Number.isInteger(group.endWordIndex);
+      const startWordIndex = hasWordRange ? group.startWordIndex! : 0;
+      const endWordIndex = hasWordRange ? group.endWordIndex! : words.length;
+      const indexedWords = words
+        .map((word, index) => ({word, index}))
+        .filter(({word, index}) =>
+          hasWordRange
+            ? index >= startWordIndex && index < endWordIndex
+            : word.startMs >= group.startMs && word.startMs < group.endMs
+        );
+      const pageWords = indexedWords.map(({word}) => word);
       if (pageWords.length === 0) return [];
       return [{
         words: pageWords,
+        wordIndices: indexedWords.map(({index}) => index),
         startMs: group.startMs,
         endMs: group.endMs,
+        lineBreakAfterWordIndices: group.lineBreakAfterWordIndices ?? [],
+        translationText: group.translationText,
       }];
     });
   }
@@ -72,8 +92,10 @@ function buildPages(
     if (pageWords.length === 0) continue;
     pages.push({
       words: pageWords,
+      wordIndices: pageWords.map((_, offset) => i + offset),
       startMs: pageWords[0].startMs,
       endMs: pageWords[pageWords.length - 1].endMs,
+      lineBreakAfterWordIndices: [],
     });
   }
   return pages;
@@ -107,6 +129,7 @@ const PageRenderer: React.FC<{
   const translation = translations.find(
     (item) => item.startMs <= currentMs && item.endMs > currentMs
   );
+  const translationText = page.translationText ?? translation?.text;
 
   // Spring entrance
   const entrance = spring({
@@ -148,6 +171,9 @@ const PageRenderer: React.FC<{
           {page.words.map((w, i) => {
             const isActive = w.startMs <= currentMs && w.endMs > currentMs;
             const isPast = w.endMs <= currentMs;
+            const shouldBreak = page.lineBreakAfterWordIndices.includes(
+              page.wordIndices[i]
+            );
             return (
               <span
                 key={`${w.startMs}-${i}`}
@@ -159,12 +185,13 @@ const PageRenderer: React.FC<{
                     : "0 2px 4px rgba(0,0,0,0.5)",
                 }}
               >
-                {w.word}{i < page.words.length - 1 ? " " : ""}
+                <span>{w.word}</span>
+                {shouldBreak ? <br /> : i < page.words.length - 1 ? " " : ""}
               </span>
             );
           })}
         </span>
-        {translation ? (
+        {translationText ? (
           <div
             style={{
               color: translationColor,
@@ -184,7 +211,7 @@ const PageRenderer: React.FC<{
               textShadow: "0 2px 4px rgba(0,0,0,0.55)",
             }}
           >
-            {translation.text}
+            {translationText}
           </div>
         ) : null}
       </div>
