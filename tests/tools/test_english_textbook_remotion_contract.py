@@ -53,6 +53,7 @@ def test_edit_decisions_schema_accepts_bilingual_captions_and_virtual_camera():
             "source": "lesson-video",
             "in_seconds": 0,
             "out_seconds": 3.2,
+            "source_in_seconds": 0,
             "transform": {
                 "start_scale": 1.0,
                 "end_scale": 1.12,
@@ -66,6 +67,7 @@ def test_edit_decisions_schema_accepts_bilingual_captions_and_virtual_camera():
             "source": "lesson-video",
             "in_seconds": 3.2,
             "out_seconds": 6.6,
+            "source_in_seconds": 3.2,
             "transform": {
                 "start_scale": 1.28,
                 "end_scale": 1.48,
@@ -79,6 +81,7 @@ def test_edit_decisions_schema_accepts_bilingual_captions_and_virtual_camera():
             "source": "lesson-video",
             "in_seconds": 6.6,
             "out_seconds": 10,
+            "source_in_seconds": 6.6,
             "transform": {
                 "start_scale": 1.65,
                 "end_scale": 1.9,
