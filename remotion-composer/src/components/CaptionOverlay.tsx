@@ -20,9 +20,16 @@ export interface TranslationCaption {
   endMs: number;
 }
 
+export interface CaptionGroup {
+  id: string;
+  startMs: number;
+  endMs: number;
+}
+
 interface CaptionOverlayProps {
   words: WordCaption[];
   translations?: TranslationCaption[];
+  groups?: CaptionGroup[];
   // How many words to show at once in a "page"
   wordsPerPage?: number;
   fontSize?: number;
@@ -40,7 +47,25 @@ interface CaptionPage {
   endMs: number;
 }
 
-function buildPages(words: WordCaption[], wordsPerPage: number): CaptionPage[] {
+function buildPages(
+  words: WordCaption[],
+  wordsPerPage: number,
+  groups: CaptionGroup[]
+): CaptionPage[] {
+  if (groups.length > 0) {
+    return groups.flatMap((group) => {
+      const pageWords = words.filter(
+        (word) => word.startMs >= group.startMs && word.startMs < group.endMs
+      );
+      if (pageWords.length === 0) return [];
+      return [{
+        words: pageWords,
+        startMs: group.startMs,
+        endMs: group.endMs,
+      }];
+    });
+  }
+
   const pages: CaptionPage[] = [];
   for (let i = 0; i < words.length; i += wordsPerPage) {
     const pageWords = words.slice(i, i + wordsPerPage);
@@ -104,9 +129,10 @@ const PageRenderer: React.FC<{
           transform: `translateY(${interpolate(entrance, [0, 1], [20, 0])}px)`,
           backgroundColor,
           borderRadius: 12,
-          padding: "14px 28px",
-          maxWidth: "80%",
+          padding: "12px 24px",
+          maxWidth: "68%",
           textAlign: "center",
+          boxSizing: "border-box",
         }}
       >
         <span
@@ -145,9 +171,16 @@ const PageRenderer: React.FC<{
               fontFamily:
                 '"PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif',
               fontSize: translationFontSize,
-              fontWeight: 600,
-              lineHeight: 1.35,
-              marginTop: 4,
+              fontWeight: 500,
+              lineHeight: 1.45,
+              letterSpacing: "0.01em",
+              marginTop: 6,
+              marginLeft: "auto",
+              marginRight: "auto",
+              maxWidth: "20em",
+              whiteSpace: "pre-line",
+              overflowWrap: "anywhere",
+              opacity: 0.9,
               textShadow: "0 2px 4px rgba(0,0,0,0.55)",
             }}
           >
@@ -162,9 +195,10 @@ const PageRenderer: React.FC<{
 export const CaptionOverlay: React.FC<CaptionOverlayProps> = ({
   words,
   translations = [],
+  groups = [],
   wordsPerPage = 6,
-  fontSize = 42,
-  translationFontSize = 30,
+  fontSize = 38,
+  translationFontSize = 26,
   color = "#F8FAFC",
   translationColor = "#FFFDF8",
   highlightColor = "#22D3EE",
@@ -172,7 +206,7 @@ export const CaptionOverlay: React.FC<CaptionOverlayProps> = ({
   fontFamily = "Space Grotesk, Inter, system-ui, sans-serif",
 }) => {
   const { fps } = useVideoConfig();
-  const pages = buildPages(words, wordsPerPage);
+  const pages = buildPages(words, wordsPerPage, groups);
 
   return (
     <AbsoluteFill>
@@ -185,7 +219,12 @@ export const CaptionOverlay: React.FC<CaptionOverlayProps> = ({
         );
 
         return (
-          <Sequence key={i} from={fromFrame} durationInFrames={duration}>
+          <Sequence
+            key={i}
+            from={fromFrame}
+            durationInFrames={duration}
+            premountFor={fps}
+          >
             <PageRenderer
               page={page}
               fontSize={fontSize}

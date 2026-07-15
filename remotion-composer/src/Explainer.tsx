@@ -46,6 +46,7 @@ import { KPIGrid } from "./components/charts/KPIGrid";
 import { ProgressBar } from "./components/ProgressBar";
 import {
   CaptionOverlay,
+  CaptionGroup,
   TranslationCaption,
   WordCaption,
 } from "./components/CaptionOverlay";
@@ -329,6 +330,7 @@ export interface ExplainerProps {
   cuts: Cut[];
   overlays?: Overlay[];
   captions?: WordCaption[];
+  caption_groups?: CaptionGroup[];
   translations?: TranslationCaption[];
   audio?: AudioConfig;
 }
@@ -858,7 +860,14 @@ const OverlayRenderer: React.FC<{ overlay: Overlay }> = ({ overlay }) => {
 // ---------------------------------------------------------------------------
 
 export const Explainer: React.FC<ExplainerProps> = (props) => {
-  const { cuts, overlays, captions, translations, audio } = props;
+  const {
+    cuts,
+    overlays,
+    captions,
+    caption_groups: captionGroups,
+    translations,
+    audio,
+  } = props;
   const { fps, durationInFrames } = useVideoConfig();
 
   // Resolve theme from props — playbook name, theme name, or custom themeConfig
@@ -900,8 +909,10 @@ export const Explainer: React.FC<ExplainerProps> = (props) => {
         <CaptionOverlay
           words={captions}
           translations={translations}
+          groups={captionGroups}
           wordsPerPage={6}
-          fontSize={42}
+          fontSize={38}
+          translationFontSize={26}
           highlightColor={theme.captionHighlightColor}
           backgroundColor={theme.captionBackgroundColor}
         />

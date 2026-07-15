@@ -1207,7 +1207,8 @@ class VideoCompose(BaseTool):
         Checks:
         1. Delivery promise violation: motion-required brief with >70% still cuts → BLOCK
         2. Slideshow risk score "fail" (average ≥ 4.0) → BLOCK
-        3. Missing renderer_family → WARN (log only, don't block)
+        3. Bilingual caption factuality, semantic grouping, and line length
+        4. Missing renderer_family → BLOCK
 
         Returns a failed ToolResult if render should be blocked, None if OK to proceed.
         """
@@ -1273,7 +1274,11 @@ class VideoCompose(BaseTool):
             except Exception as e:
                 log.warning("Could not compute slideshow risk: %s", e)
 
-        # --- 3. Missing renderer_family (BLOCK — must be set at proposal) ---
+        # --- 3. Bilingual caption contract ---
+        for issue in self._bilingual_caption_issues(edit_decisions):
+            blocks.append(f"Bilingual caption violation: {issue}")
+
+        # --- 4. Missing renderer_family (BLOCK — must be set at proposal) ---
         if not renderer_family:
             blocks.append(
                 "No renderer_family in edit_decisions. "
@@ -1297,6 +1302,91 @@ class VideoCompose(BaseTool):
             )
 
         return None
+
+    @staticmethod
+    def _bilingual_caption_issues(
+        edit_decisions: dict[str, Any],
+    ) -> list[str]:
+        """Return factuality, segmentation, and readability caption issues."""
+
+        translations = edit_decisions.get("translations") or []
+        if not translations:
+            return []
+
+        issues: list[str] = []
+        metadata = edit_decisions.get("metadata") or {}
+        glossary = metadata.get("translation_glossary") or {}
+        translated_text = "".join(
+            str(item.get("text", "")) for item in translations if isinstance(item, dict)
+        )
+
+        for source_name, required_translation in glossary.items():
+            if str(required_translation) not in translated_text:
+                issues.append(
+                    f"{source_name} must use the approved translation "
+                    f"{required_translation}."
+                )
+
+        max_chars = int(metadata.get("translation_max_chars_per_line", 20))
+        previous_end = -1
+        for index, item in enumerate(translations, start=1):
+            text = str(item.get("text", ""))
+            if "——" in text:
+                issues.append(
+                    f"Chinese cue {index} uses a double em dash (破折号); "
+                    "use natural Chinese word order or parentheses."
+                )
+            for line in text.splitlines() or [text]:
+                visible_chars = len("".join(line.split()))
+                if visible_chars > max_chars:
+                    issues.append(
+                        f"Chinese cue {index} has {visible_chars} characters on one "
+                        f"line; maximum is {max_chars}."
+                    )
+            start_ms = int(item.get("startMs", 0))
+            end_ms = int(item.get("endMs", 0))
+            if start_ms < previous_end or end_ms <= start_ms:
+                issues.append(f"Chinese cue {index} has overlapping or invalid timing.")
+            previous_end = end_ms
+
+        captions = edit_decisions.get("captions") or []
+        groups = edit_decisions.get("caption_groups") or []
+        if groups:
+            membership = [0 for _ in captions]
+            previous_end = -1
+            for index, group in enumerate(groups, start=1):
+                start_ms = int(group.get("startMs", 0))
+                end_ms = int(group.get("endMs", 0))
+                if start_ms < previous_end or end_ms <= start_ms:
+                    issues.append(
+                        f"English caption group {index} has overlapping or invalid timing."
+                    )
+                previous_end = end_ms
+                page_indices = [
+                    word_index
+                    for word_index, word in enumerate(captions)
+                    if start_ms <= int(word.get("startMs", 0)) < end_ms
+                ]
+                for word_index in page_indices:
+                    membership[word_index] += 1
+                page_words = [
+                    str(captions[word_index].get("word", "")).strip()
+                    for word_index in page_indices
+                ]
+                normalized = [word.strip(".,;:!?\"'").lower() for word in page_words]
+                if len(normalized) <= 2 and normalized and normalized[0] in {
+                    "in", "of", "to", "between",
+                }:
+                    issues.append(
+                        f"English caption group {index} is an orphaned phrase: "
+                        f"{' '.join(page_words)}"
+                    )
+            if any(count != 1 for count in membership):
+                issues.append(
+                    "English caption groups must cover every canonical word exactly once."
+                )
+
+        return issues
 
     def _render(self, inputs: dict[str, Any]) -> ToolResult:
         """High-level render: assemble edit decisions + asset manifest into final video.

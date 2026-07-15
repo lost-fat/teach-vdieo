@@ -222,6 +222,20 @@
         "additionalProperties": false
       }
     },
+    "caption_groups": {
+      "type": "array",
+      "description": "Grammar-safe English caption pages. Boundaries control paging without changing canonical word timestamps.",
+      "items": {
+        "type": "object",
+        "required": ["id", "startMs", "endMs"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "startMs": { "type": "integer", "minimum": 0 },
+          "endMs": { "type": "integer", "minimum": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
     "translations": {
       "type": "array",
       "description": "Timed translation lines rendered beneath the active source-language caption page.",
