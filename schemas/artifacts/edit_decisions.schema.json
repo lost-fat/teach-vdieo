@@ -17,6 +17,11 @@
           "source": { "type": "string", "description": "Source file path or asset-manifest ID" },
           "in_seconds": { "type": "number", "minimum": 0 },
           "out_seconds": { "type": "number", "minimum": 0 },
+          "source_in_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Seek offset within the source media before this timeline cut begins."
+          },
           "speed": { "type": "number", "minimum": 0.1, "default": 1.0 },
           "layer": {
             "type": "string",
