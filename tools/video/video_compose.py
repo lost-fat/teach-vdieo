@@ -30,10 +30,15 @@ the agent to re-ask the user rather than substituting a different engine.
 
 from __future__ import annotations
 
+from array import array
+import io
 import json
 import logging
+import math
 import subprocess
+import sys
 import time
+import wave
 from pathlib import Path
 from typing import Any, Optional
 
@@ -2273,6 +2278,37 @@ class VideoCompose(BaseTool):
                             max_vol = float(line.split("max_volume:")[1].strip().split()[0])
                         except (ValueError, IndexError):
                             pass
+
+                # Remotion's bundled FFmpeg can omit the volumedetect filter.
+                # Fall back to a small mono PCM decode so audio QA still works
+                # in that runtime instead of silently reporting no narration.
+                if mean_vol is None:
+                    pcm_cmd = [
+                        "ffmpeg", "-hide_banner", "-loglevel", "error",
+                        "-i", str(output_path), "-vn", "-ac", "1", "-ar", "8000",
+                        "-acodec", "pcm_s16le", "-f", "wav", "-",
+                    ]
+                    pcm_proc = subprocess.run(
+                        pcm_cmd, capture_output=True, timeout=60
+                    )
+                    if pcm_proc.returncode == 0 and pcm_proc.stdout:
+                        with wave.open(io.BytesIO(pcm_proc.stdout), "rb") as pcm_wav:
+                            pcm_bytes = pcm_wav.readframes(pcm_wav.getnframes())
+                        samples = array("h")
+                        samples.frombytes(pcm_bytes)
+                        if sys.byteorder != "little":
+                            samples.byteswap()
+                        if samples:
+                            rms = math.sqrt(
+                                sum(sample * sample for sample in samples) / len(samples)
+                            )
+                            peak = max(abs(sample) for sample in samples)
+                            mean_vol = (
+                                20 * math.log10(rms / 32768) if rms else -100.0
+                            )
+                            max_vol = (
+                                20 * math.log10(peak / 32768) if peak else -100.0
+                            )
 
                 if mean_vol is not None:
                     if mean_vol < -60:
