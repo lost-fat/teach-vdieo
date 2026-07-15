@@ -2242,6 +2242,11 @@ class VideoCompose(BaseTool):
             "mix_intelligible": True,
             "issues": [],
         }
+        audio_config = (edit_decisions or {}).get("audio") or {}
+        narration_configured = bool(audio_config.get("narration"))
+        music_configured = bool(
+            audio_config.get("music") or (edit_decisions or {}).get("music")
+        )
         if technical_probe.get("has_audio") and duration > 0:
             try:
                 # Use ffmpeg volumedetect to check audio levels
@@ -2274,11 +2279,14 @@ class VideoCompose(BaseTool):
                         audio_spotcheck["issues"].append(
                             f"Mean volume {mean_vol:.1f} dB — effectively silent"
                         )
-                    # Assume narration present if mean volume is reasonable
-                    if mean_vol > -40:
+                    # Audio level proves signal presence, while edit_decisions
+                    # declares its role. Do not label narration as music merely
+                    # because the final MP4 contains an audio stream.
+                    if mean_vol > -40 and (
+                        narration_configured or not music_configured
+                    ):
                         audio_spotcheck["narration_present"] = True
-                    # Assume music present if audio exists (conservative)
-                    if mean_vol > -50:
+                    if mean_vol > -50 and music_configured:
                         audio_spotcheck["music_present"] = True
 
                 if max_vol is not None and max_vol > -0.5:
