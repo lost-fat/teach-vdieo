@@ -27,7 +27,27 @@
             "type": "object",
             "properties": {
               "scale": { "type": "number", "minimum": 0, "default": 1.0 },
+              "start_scale": { "type": "number", "minimum": 0.1, "maximum": 4 },
+              "end_scale": { "type": "number", "minimum": 0.1, "maximum": 4 },
               "position": { "type": "string", "default": "center" },
+              "start_position": {
+                "type": "object",
+                "required": ["x", "y"],
+                "properties": {
+                  "x": { "type": "number", "minimum": 0, "maximum": 100 },
+                  "y": { "type": "number", "minimum": 0, "maximum": 100 }
+                },
+                "additionalProperties": false
+              },
+              "end_position": {
+                "type": "object",
+                "required": ["x", "y"],
+                "properties": {
+                  "x": { "type": "number", "minimum": 0, "maximum": 100 },
+                  "y": { "type": "number", "minimum": 0, "maximum": 100 }
+                },
+                "additionalProperties": false
+              },
               "animation": {
                 "type": "string",
                 "description": "Motion applied to still images (e.g. ken-burns-slow-zoom, pan-left, static)"
@@ -168,6 +188,20 @@
         "required": ["word", "startMs", "endMs"],
         "properties": {
           "word": { "type": "string", "minLength": 1 },
+          "startMs": { "type": "integer", "minimum": 0 },
+          "endMs": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "translations": {
+      "type": "array",
+      "description": "Timed translation lines rendered beneath the active source-language caption page.",
+      "items": {
+        "type": "object",
+        "required": ["text", "startMs", "endMs"],
+        "properties": {
+          "text": { "type": "string", "minLength": 1 },
           "startMs": { "type": "integer", "minimum": 0 },
           "endMs": { "type": "integer", "minimum": 0 }
         },

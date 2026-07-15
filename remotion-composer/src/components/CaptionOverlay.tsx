@@ -14,12 +14,21 @@ export interface WordCaption {
   endMs: number;
 }
 
+export interface TranslationCaption {
+  text: string;
+  startMs: number;
+  endMs: number;
+}
+
 interface CaptionOverlayProps {
   words: WordCaption[];
+  translations?: TranslationCaption[];
   // How many words to show at once in a "page"
   wordsPerPage?: number;
   fontSize?: number;
+  translationFontSize?: number;
   color?: string;
+  translationColor?: string;
   highlightColor?: string;
   backgroundColor?: string;
   fontFamily?: string;
@@ -52,11 +61,27 @@ const PageRenderer: React.FC<{
   highlightColor: string;
   backgroundColor: string;
   fontFamily: string;
-}> = ({ page, fontSize, color, highlightColor, backgroundColor, fontFamily }) => {
+  translations: TranslationCaption[];
+  translationFontSize: number;
+  translationColor: string;
+}> = ({
+  page,
+  fontSize,
+  color,
+  highlightColor,
+  backgroundColor,
+  fontFamily,
+  translations,
+  translationFontSize,
+  translationColor,
+}) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
   const currentMs = page.startMs + (frame / fps) * 1000;
+  const translation = translations.find(
+    (item) => item.startMs <= currentMs && item.endMs > currentMs
+  );
 
   // Spring entrance
   const entrance = spring({
@@ -86,6 +111,7 @@ const PageRenderer: React.FC<{
       >
         <span
           style={{
+            display: "block",
             fontSize,
             fontWeight: 700,
             fontFamily,
@@ -112,6 +138,22 @@ const PageRenderer: React.FC<{
             );
           })}
         </span>
+        {translation ? (
+          <div
+            style={{
+              color: translationColor,
+              fontFamily:
+                '"PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif',
+              fontSize: translationFontSize,
+              fontWeight: 600,
+              lineHeight: 1.35,
+              marginTop: 4,
+              textShadow: "0 2px 4px rgba(0,0,0,0.55)",
+            }}
+          >
+            {translation.text}
+          </div>
+        ) : null}
       </div>
     </AbsoluteFill>
   );
@@ -119,9 +161,12 @@ const PageRenderer: React.FC<{
 
 export const CaptionOverlay: React.FC<CaptionOverlayProps> = ({
   words,
+  translations = [],
   wordsPerPage = 6,
   fontSize = 42,
+  translationFontSize = 30,
   color = "#F8FAFC",
+  translationColor = "#FFFDF8",
   highlightColor = "#22D3EE",
   backgroundColor = "rgba(15, 23, 42, 0.75)",
   fontFamily = "Space Grotesk, Inter, system-ui, sans-serif",
@@ -148,6 +193,9 @@ export const CaptionOverlay: React.FC<CaptionOverlayProps> = ({
               highlightColor={highlightColor}
               backgroundColor={backgroundColor}
               fontFamily={fontFamily}
+              translations={translations}
+              translationFontSize={translationFontSize}
+              translationColor={translationColor}
             />
           </Sequence>
         );

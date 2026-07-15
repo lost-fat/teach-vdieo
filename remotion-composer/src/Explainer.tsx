@@ -43,7 +43,11 @@ import { LineChart } from "./components/charts/LineChart";
 import { PieChart } from "./components/charts/PieChart";
 import { KPIGrid } from "./components/charts/KPIGrid";
 import { ProgressBar } from "./components/ProgressBar";
-import { CaptionOverlay, WordCaption } from "./components/CaptionOverlay";
+import {
+  CaptionOverlay,
+  TranslationCaption,
+  WordCaption,
+} from "./components/CaptionOverlay";
 import { SectionTitle } from "./components/SectionTitle";
 import { StatReveal } from "./components/StatReveal";
 import { HeroTitle } from "./components/HeroTitle";
@@ -258,6 +262,10 @@ interface Cut {
     animation?: string;
     scale?: number;
     position?: string | { x: number; y: number };
+    start_scale?: number;
+    end_scale?: number;
+    start_position?: { x: number; y: number };
+    end_position?: { x: number; y: number };
   };
   // Anime scene props (type: "anime_scene")
   images?: string[];
@@ -315,6 +323,7 @@ export interface ExplainerProps {
   cuts: Cut[];
   overlays?: Overlay[];
   captions?: WordCaption[];
+  translations?: TranslationCaption[];
   audio?: AudioConfig;
 }
 
@@ -425,22 +434,50 @@ const ImageScene: React.FC<{ src: string; animation?: string }> = ({
 // Enhanced Video Scene
 // ---------------------------------------------------------------------------
 
-const VideoScene: React.FC<{ src: string; startFrom?: number }> = ({
-  src,
-  startFrom = 0,
-}) => {
+const VideoScene: React.FC<{
+  src: string;
+  startFrom?: number;
+  transform?: Cut["transform"];
+  transitionIn?: string;
+  transitionOut?: string;
+}> = ({ src, startFrom = 0, transform, transitionIn, transitionOut }) => {
   const frame = useCurrentFrame();
   const { fps, durationInFrames } = useVideoConfig();
 
-  const fadeIn = spring({ frame, fps, config: { damping: 20 } });
+  const fadeIn = transitionIn === "dissolve"
+    ? spring({ frame, fps, config: { damping: 20 } })
+    : 1;
   const fadeOutStart = durationInFrames - 8;
-  const fadeOut = interpolate(frame, [fadeOutStart, durationInFrames], [1, 0.3], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-  });
+  const fadeOut = transitionOut === "dissolve"
+    ? interpolate(frame, [fadeOutStart, durationInFrames], [1, 0], {
+        extrapolateLeft: "clamp",
+        extrapolateRight: "clamp",
+      })
+    : 1;
+  const progress = interpolate(
+    frame,
+    [0, Math.max(1, durationInFrames - 1)],
+    [0, 1],
+    { extrapolateLeft: "clamp", extrapolateRight: "clamp" }
+  );
+  const startScale = transform?.start_scale ?? transform?.scale ?? 1;
+  const endScale = transform?.end_scale ?? startScale;
+  const startPosition = transform?.start_position ?? { x: 50, y: 50 };
+  const endPosition = transform?.end_position ?? startPosition;
+  const scale = interpolate(progress, [0, 1], [startScale, endScale]);
+  const positionX = interpolate(
+    progress,
+    [0, 1],
+    [startPosition.x, endPosition.x]
+  );
+  const positionY = interpolate(
+    progress,
+    [0, 1],
+    [startPosition.y, endPosition.y]
+  );
 
   return (
-    <AbsoluteFill style={{ background: "#0F172A" }}>
+    <AbsoluteFill style={{ background: "#0F172A", overflow: "hidden" }}>
       <OffthreadVideo
         src={resolveAsset(src)}
         startFrom={Math.round(startFrom * fps)}
@@ -448,7 +485,11 @@ const VideoScene: React.FC<{ src: string; startFrom?: number }> = ({
           width: "100%",
           height: "100%",
           objectFit: "cover",
+          objectPosition: `${positionX}% ${positionY}%`,
           opacity: fadeIn * fadeOut,
+          transform: `scale(${scale})`,
+          transformOrigin: "center",
+          willChange: "transform, object-position, opacity",
         }}
         muted
       />
@@ -721,7 +762,15 @@ const SceneRenderer: React.FC<{ cut: Cut; theme: ThemeConfig }> = ({ cut, theme 
   }
 
   if (cut.source && isVideo(cut.source)) {
-    return maybeWrapWithBg(<VideoScene src={cut.source} startFrom={cut.source_in_seconds ?? 0} />);
+    return maybeWrapWithBg(
+      <VideoScene
+        src={cut.source}
+        startFrom={cut.source_in_seconds ?? 0}
+        transform={cut.transform}
+        transitionIn={cut.transition_in}
+        transitionOut={cut.transition_out}
+      />
+    );
   }
 
   // Final fallback — try as image if source exists, otherwise show text_card
@@ -780,7 +829,7 @@ const OverlayRenderer: React.FC<{ overlay: Overlay }> = ({ overlay }) => {
 // ---------------------------------------------------------------------------
 
 export const Explainer: React.FC<ExplainerProps> = (props) => {
-  const { cuts, overlays, captions, audio } = props;
+  const { cuts, overlays, captions, translations, audio } = props;
   const { fps, durationInFrames } = useVideoConfig();
 
   // Resolve theme from props — playbook name, theme name, or custom themeConfig
@@ -821,6 +870,7 @@ export const Explainer: React.FC<ExplainerProps> = (props) => {
       {captions && captions.length > 0 && (
         <CaptionOverlay
           words={captions}
+          translations={translations}
           wordsPerPage={6}
           fontSize={42}
           highlightColor={theme.captionHighlightColor}

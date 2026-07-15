@@ -367,8 +367,21 @@ function renderActivity(s) {
   for (const ev of rows.slice(-10).reverse()) {
     let statusEl;
     if (ev.event === "finish") {
+      const costAmount = Number(ev.cost_usd);
+      const hasEstimatedCost = Number.isFinite(costAmount) && costAmount > 0;
+      const formattedCost = hasEstimatedCost
+        ? (costAmount < 0.01 ? `$${costAmount.toFixed(4)}` : fmtMoney(costAmount))
+        : "";
+      const costLabel = hasEstimatedCost
+        ? (ev.cost_basis === "actual_charged"
+          ? ` ${formattedCost} charged`
+          : ` ≈${formattedCost} est.`)
+        : "";
       statusEl = el("span", { class: `status ${ev.success === false ? "err" : "ok"}` },
-        `${ev.success === false ? "✕" : "✓"}${ev.duration_s != null ? ` ${ev.duration_s.toFixed ? ev.duration_s.toFixed(1) : ev.duration_s}s` : ""}${ev.cost_usd ? ` ${fmtMoney(ev.cost_usd)}` : ""}`);
+        `${ev.success === false ? "✕" : "✓"}${ev.duration_s != null ? ` ${ev.duration_s.toFixed ? ev.duration_s.toFixed(1) : ev.duration_s}s` : ""}${costLabel}`);
+      if (hasEstimatedCost && ev.cost_basis !== "actual_charged") {
+        statusEl.title = "estimated_list_price; not a provider billing charge";
+      }
     } else if (ev.event === "error") {
       statusEl = el("span", { class: "status err" }, "✕");
     } else {

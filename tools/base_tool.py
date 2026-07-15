@@ -216,6 +216,13 @@ def _instrument_execute(fn: Callable) -> Callable:
                 "success": getattr(result, "success", None),
                 # NOTE: 0.0 is meaningful (ran for free) — only None is dropped.
                 "cost_usd": cost if isinstance(cost, (int, float)) else None,
+                # ToolResult.cost_usd comes from estimate_cost(); providers do
+                # not generally return the account-side charged amount.
+                "cost_basis": (
+                    "estimated_list_price"
+                    if isinstance(cost, (int, float))
+                    else None
+                ),
                 "duration_s": round(time.monotonic() - started, 2),
             })
         return result
