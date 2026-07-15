@@ -2252,6 +2252,7 @@ class VideoCompose(BaseTool):
                 # Use ffmpeg volumedetect to check audio levels
                 cmd = [
                     "ffmpeg", "-i", str(output_path),
+                    "-vn",
                     "-af", "volumedetect", "-f", "null", "-",
                 ]
                 proc = subprocess.run(
