@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
+import wave
 
 from schemas.artifacts import validate_artifact
 from tools.base_tool import ToolResult
@@ -330,8 +332,18 @@ def test_strict_final_review_passes_exact_delivery_contract(tmp_path, monkeypatc
         if "-frames:v" in cmd:
             Path(cmd[-1]).write_bytes(b"x" * 3_000)
             return FakeProcess()
-        if "-af" in cmd and "-vn" not in cmd:
-            return FakeProcess(stderr="Encoder not found", returncode=1)
+        if "-af" in cmd:
+            if "-vn" not in cmd:
+                return FakeProcess(stderr="Encoder not found", returncode=1)
+            return FakeProcess(stderr="No such filter: 'volumedetect'", returncode=1)
+        if "wav" in cmd:
+            wav_buffer = io.BytesIO()
+            with wave.open(wav_buffer, "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(2)
+                writer.setframerate(8_000)
+                writer.writeframes(b"\x10\x27" * 8_000)
+            return FakeProcess(stdout=wav_buffer.getvalue())
         return FakeProcess(
             stderr="mean_volume: -20.0 dB\nmax_volume: -3.0 dB\n"
         )
