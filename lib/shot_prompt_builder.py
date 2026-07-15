@@ -213,6 +213,35 @@ def _bounded_text(parts: list[str], limit: int) -> str:
     return output
 
 
+def _validated_temporal_beats(
+    scene: dict[str, Any], spec: dict[str, Any]
+) -> list[dict[str, Any]]:
+    beats = spec.get("temporal_beats", []) or []
+    if not beats:
+        raise ValueError("video_prompt_spec.temporal_beats must not be empty")
+
+    clip_duration: float | None = None
+    if "start_seconds" in scene and "end_seconds" in scene:
+        clip_duration = float(scene["end_seconds"]) - float(scene["start_seconds"])
+        if clip_duration <= 0:
+            raise ValueError("scene end_seconds must be after start_seconds")
+
+    previous_end = 0.0
+    for index, beat in enumerate(beats):
+        start = float(beat["start_seconds"])
+        end = float(beat["end_seconds"])
+        if index == 0 and start != 0:
+            raise ValueError("scene-local temporal beats must begin at 0 seconds")
+        if start < previous_end or end <= start:
+            raise ValueError("scene-local temporal beats must be ordered and non-overlapping")
+        if clip_duration is not None and end > clip_duration + 1e-6:
+            raise ValueError(
+                "scene-local temporal beat exceeds the generated clip duration"
+            )
+        previous_end = end
+    return beats
+
+
 def build_video_prompt(
     scene: dict[str, Any],
     continuity_bible: dict[str, Any] | None = None,
@@ -248,7 +277,7 @@ def build_video_prompt(
     if spec.get("camera_motion"):
         parts.append(f"Camera motion: {spec['camera_motion']}")
 
-    for beat in spec.get("temporal_beats", []) or []:
+    for beat in _validated_temporal_beats(scene, spec):
         start = _format_seconds(beat["start_seconds"])
         end = _format_seconds(beat["end_seconds"])
         parts.append(f"[{start}-{end}s] {str(beat['action']).strip()}")

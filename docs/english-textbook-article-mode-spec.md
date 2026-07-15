@@ -63,7 +63,7 @@ Creative planning writes a provider-neutral `video_prompt_spec` rather than a si
 - `single_shot`
 - `subject_motion`
 - `camera_motion`
-- timed `temporal_beats`
+- scene-local timed `temporal_beats` (zero-based within each generated clip)
 - optional foreground/parallax event
 - optional visual payoff
 - `continuity_refs`
@@ -79,4 +79,3 @@ All new schema fields are optional for existing Phase 1 artifacts. Legacy time-o
 ## Current scope boundary
 
 This change does not add the proposed chapter-level “interesting and natural” scoring rubric or final QA metrics. It improves the planning and rendering path itself. It also performs no live image, video, TTS, ASR, or text-generation API call.
-

@@ -116,3 +116,27 @@ def test_prompt_compiler_rejects_an_unknown_continuity_reference():
 
     with pytest.raises(ValueError, match="missing-entity"):
         build_video_prompt(scene, {}, provider="wan-i2v")
+
+
+def test_prompt_compiler_requires_scene_local_temporal_beats():
+    scene = {
+        "start_seconds": 20,
+        "end_seconds": 27,
+        "video_prompt_spec": {
+            "single_shot": True,
+            "subject_motion": "The subject crosses the room.",
+            "camera_motion": "The camera tracks alongside.",
+            "temporal_beats": [
+                {
+                    "start_seconds": 20,
+                    "end_seconds": 27,
+                    "action": "The action incorrectly uses article time.",
+                }
+            ],
+            "continuity_refs": [],
+            "negative_constraints": [],
+        },
+    }
+
+    with pytest.raises(ValueError, match="scene-local"):
+        build_video_prompt(scene, {}, provider="wan-i2v")
