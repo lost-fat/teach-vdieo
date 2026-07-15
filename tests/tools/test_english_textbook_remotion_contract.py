@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import io
 import json
 from pathlib import Path
@@ -91,8 +92,73 @@ def test_remotion_explainer_wires_translations_and_virtual_camera():
     ).read_text(encoding="utf-8")
 
     assert "translations={translations}" in source
+    assert "groups={captionGroups}" in source
     assert "transform={cut.transform}" in source
     assert "transform?.keyframes" in source
+
+
+def test_edit_decisions_accepts_semantic_caption_groups():
+    decisions = _edit_decisions()
+    decisions["caption_groups"] = [
+        {"id": "cg-001", "startMs": 0, "endMs": 500},
+        {"id": "cg-002", "startMs": 500, "endMs": 1100},
+    ]
+
+    validate_artifact("edit_decisions", decisions)
+
+
+def test_bilingual_caption_guard_catches_factuality_segmentation_and_load():
+    decisions = _edit_decisions()
+    decisions["captions"] = [
+        {"word": "Mombasa,", "startMs": 0, "endMs": 500},
+        {"word": "completed", "startMs": 500, "endMs": 800},
+        {"word": "in", "startMs": 800, "endMs": 900},
+        {"word": "1901.", "startMs": 900, "endMs": 1100},
+    ]
+    decisions["caption_groups"] = [
+        {"id": "cg-001", "startMs": 0, "endMs": 500},
+        {"id": "cg-002", "startMs": 500, "endMs": 1100},
+    ]
+    decisions["translations"] = [
+        {"text": "蒙巴萨（肯尼亚主要港口）", "startMs": 0, "endMs": 500},
+        {"text": "这条铁路于1901年建成", "startMs": 500, "endMs": 1100},
+    ]
+    decisions["metadata"]["translation_glossary"] = {
+        "Mombasa": "蒙巴萨",
+        "Kenya": "肯尼亚",
+    }
+    decisions["metadata"]["translation_max_chars_per_line"] = 20
+
+    assert VideoCompose._bilingual_caption_issues(decisions) == []
+
+    bad = deepcopy(decisions)
+    bad["translations"][0]["text"] = "巴萨——肯尼亚主要港口"
+    bad["translations"][1]["text"] = "这是一条明显超过二十个字且会造成底部视觉过载的中文字幕"
+    bad["caption_groups"] = [
+        {"id": "cg-001", "startMs": 0, "endMs": 800},
+        {"id": "cg-002", "startMs": 800, "endMs": 1100},
+    ]
+
+    issues = VideoCompose._bilingual_caption_issues(bad)
+    assert any("Mombasa" in issue and "蒙巴萨" in issue for issue in issues)
+    assert any("破折号" in issue for issue in issues)
+    assert any("20" in issue for issue in issues)
+    assert any("in 1901" in issue for issue in issues)
+
+
+def test_bilingual_caption_layout_is_compact_and_hierarchical():
+    source = (
+        Path(__file__).resolve().parent.parent.parent
+        / "remotion-composer"
+        / "src"
+        / "components"
+        / "CaptionOverlay.tsx"
+    ).read_text(encoding="utf-8")
+
+    assert 'maxWidth: "68%"' in source
+    assert "translationFontSize = 26" in source
+    assert 'letterSpacing: "0.01em"' in source
+    assert "premountFor={fps}" in source
 
 
 def test_native_caption_array_counts_as_burned_in_subtitles():
