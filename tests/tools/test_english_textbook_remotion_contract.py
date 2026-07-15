@@ -45,6 +45,77 @@ def test_edit_decisions_schema_accepts_native_remotion_captions_and_narration():
     validate_artifact("edit_decisions", _edit_decisions())
 
 
+def test_edit_decisions_schema_accepts_bilingual_captions_and_virtual_camera():
+    decisions = _edit_decisions()
+    decisions["cuts"] = [
+        {
+            "id": "cut-wide",
+            "source": "lesson-video",
+            "in_seconds": 0,
+            "out_seconds": 3.2,
+            "transform": {
+                "start_scale": 1.0,
+                "end_scale": 1.12,
+                "start_position": {"x": 50, "y": 50},
+                "end_position": {"x": 52, "y": 48},
+                "animation": "dolly-in",
+            },
+        },
+        {
+            "id": "cut-medium",
+            "source": "lesson-video",
+            "in_seconds": 3.2,
+            "out_seconds": 6.6,
+            "transform": {
+                "start_scale": 1.28,
+                "end_scale": 1.48,
+                "start_position": {"x": 52, "y": 47},
+                "end_position": {"x": 54, "y": 45},
+                "animation": "tracking-right",
+            },
+        },
+        {
+            "id": "cut-close",
+            "source": "lesson-video",
+            "in_seconds": 6.6,
+            "out_seconds": 10,
+            "transform": {
+                "start_scale": 1.65,
+                "end_scale": 1.9,
+                "start_position": {"x": 52, "y": 44},
+                "end_position": {"x": 50, "y": 42},
+                "animation": "dolly-in",
+            },
+        },
+    ]
+    decisions["translations"] = [
+        {
+            "text": "在那之前，蒙巴萨与内罗毕之间的交通联系",
+            "startMs": 223,
+            "endMs": 4752,
+        },
+        {
+            "text": "只有崎岖的公路和一条于1901年建成的老铁路。",
+            "startMs": 4752,
+            "endMs": 9876,
+        },
+    ]
+
+    validate_artifact("edit_decisions", decisions)
+
+
+def test_remotion_explainer_wires_translations_and_virtual_camera():
+    source = (
+        Path(__file__).resolve().parent.parent.parent
+        / "remotion-composer"
+        / "src"
+        / "Explainer.tsx"
+    ).read_text(encoding="utf-8")
+
+    assert "translations={translations}" in source
+    assert "transform={cut.transform}" in source
+
+
 def test_native_caption_array_counts_as_burned_in_subtitles():
     assert VideoCompose._has_burned_in_captions(_edit_decisions()) is True
 

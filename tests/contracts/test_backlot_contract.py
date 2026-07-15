@@ -2,6 +2,7 @@
 project markers, and tool-event instrumentation."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -184,6 +185,18 @@ class TestBaseToolInstrumentation:
         assert events[0]["scene_id"] == "sc3"
         assert events[1]["success"] is True
         assert events[1]["cost_usd"] == 0.05
+        assert events[1]["cost_basis"] == "estimated_list_price"
+
+    def test_activity_ui_labels_tool_costs_as_estimates(self):
+        board_js = (
+            Path(__file__).resolve().parent.parent.parent
+            / "backlot"
+            / "ui"
+            / "board.js"
+        ).read_text(encoding="utf-8")
+
+        assert "estimated_list_price" in board_js
+        assert "est." in board_js
 
     def test_execute_emits_error_event_and_reraises(self, tmp_path, monkeypatch):
         import lib.events as events_mod
