@@ -51,45 +51,18 @@ def test_edit_decisions_schema_accepts_bilingual_captions_and_virtual_camera():
     decisions = _edit_decisions()
     decisions["cuts"] = [
         {
-            "id": "cut-wide",
+            "id": "cut-continuous",
             "source": "lesson-video",
             "in_seconds": 0,
-            "out_seconds": 3.2,
+            "out_seconds": 10,
             "source_in_seconds": 0,
             "transform": {
-                "start_scale": 1.0,
-                "end_scale": 1.12,
-                "start_position": {"x": 50, "y": 50},
-                "end_position": {"x": 52, "y": 48},
-                "animation": "dolly-in",
-            },
-        },
-        {
-            "id": "cut-medium",
-            "source": "lesson-video",
-            "in_seconds": 3.2,
-            "out_seconds": 6.6,
-            "source_in_seconds": 3.2,
-            "transform": {
-                "start_scale": 1.28,
-                "end_scale": 1.48,
-                "start_position": {"x": 52, "y": 47},
-                "end_position": {"x": 54, "y": 45},
-                "animation": "tracking-right",
-            },
-        },
-        {
-            "id": "cut-close",
-            "source": "lesson-video",
-            "in_seconds": 6.6,
-            "out_seconds": 10,
-            "source_in_seconds": 6.6,
-            "transform": {
-                "start_scale": 1.65,
-                "end_scale": 1.9,
-                "start_position": {"x": 52, "y": 44},
-                "end_position": {"x": 50, "y": 42},
-                "animation": "dolly-in",
+                "keyframes": [
+                    {"at_seconds": 0, "scale": 1.0, "position": {"x": 50, "y": 50}},
+                    {"at_seconds": 3.2, "scale": 1.04, "position": {"x": 50, "y": 48}},
+                    {"at_seconds": 6.6, "scale": 1.1, "position": {"x": 50, "y": 46}},
+                    {"at_seconds": 10, "scale": 1.15, "position": {"x": 50, "y": 44}},
+                ],
             },
         },
     ]
@@ -119,6 +92,7 @@ def test_remotion_explainer_wires_translations_and_virtual_camera():
 
     assert "translations={translations}" in source
     assert "transform={cut.transform}" in source
+    assert "transform?.keyframes" in source
 
 
 def test_native_caption_array_counts_as_burned_in_subtitles():
