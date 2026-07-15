@@ -161,6 +161,21 @@ def test_bilingual_caption_layout_is_compact_and_hierarchical():
     assert "premountFor={fps}" in source
 
 
+def test_caption_overlay_uses_word_indexed_pages_and_planned_line_breaks():
+    source = (
+        Path(__file__).resolve().parent.parent.parent
+        / "remotion-composer"
+        / "src"
+        / "components"
+        / "CaptionOverlay.tsx"
+    ).read_text(encoding="utf-8")
+
+    assert "startWordIndex" in source
+    assert "endWordIndex" in source
+    assert "lineBreakAfterWordIndices" in source
+    assert "<br" in source
+
+
 def test_native_caption_array_counts_as_burned_in_subtitles():
     assert VideoCompose._has_burned_in_captions(_edit_decisions()) is True
 
