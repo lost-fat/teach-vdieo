@@ -330,6 +330,8 @@ def test_strict_final_review_passes_exact_delivery_contract(tmp_path, monkeypatc
         if "-frames:v" in cmd:
             Path(cmd[-1]).write_bytes(b"x" * 3_000)
             return FakeProcess()
+        if "-af" in cmd and "-vn" not in cmd:
+            return FakeProcess(stderr="Encoder not found", returncode=1)
         return FakeProcess(
             stderr="mean_volume: -20.0 dB\nmax_volume: -3.0 dB\n"
         )
