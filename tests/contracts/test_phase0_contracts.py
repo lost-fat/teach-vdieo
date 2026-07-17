@@ -166,6 +166,18 @@ def sample_artifact(name: str) -> dict:
                     "path": "assets/clip.mp4",
                     "source_tool": "ffmpeg",
                     "scene_id": "scene-1",
+                    "prompt": "Exact submitted motion prompt.",
+                    "negative_prompt": "No text or hard cuts.",
+                    "video_prompt_spec": {
+                        "single_shot": True,
+                        "subject_motion": "The subject crosses the frame.",
+                        "camera_motion": "The camera tracks alongside.",
+                        "temporal_beats": [
+                            {"start_seconds": 0, "end_seconds": 10, "action": "The action unfolds."}
+                        ],
+                        "continuity_refs": [],
+                        "negative_constraints": ["text", "hard cuts"],
+                    },
                 }
             ],
         }
@@ -283,6 +295,9 @@ class TestSchemas:
 
     def test_video_analysis_brief_validates(self):
         validate_artifact("video_analysis_brief", sample_artifact("video_analysis_brief"))
+
+    def test_asset_manifest_accepts_exact_video_prompt_provenance(self):
+        validate_artifact("asset_manifest", sample_artifact("asset_manifest"))
 
 
 # ---- Checkpoint ----

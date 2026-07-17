@@ -351,3 +351,107 @@ class TestStoryboardVisualSelection:
         assert card["visual"]["exists"] is True
         assert card["visual"]["path"].endswith("real.png")
         assert [t["path"].split("/")[-1] for t in card["takes"]] == ["real.png"]
+
+    def test_image_review_card_exposes_the_scene_video_prompt(self, projects_root):
+        scene = {
+            "id": "sc1",
+            "type": "generated",
+            "description": "A marked crate begins its journey.",
+            "start_seconds": 0,
+            "end_seconds": 5,
+            "story_contribution": "Turn waiting into movement.",
+            "story_beat": "turning_point",
+            "video_prompt_spec": {
+                "single_shot": True,
+                "subject_motion": "Hands lift the crate onto the train.",
+                "camera_motion": "Track beside the crate.",
+                "temporal_beats": [
+                    {"start_seconds": 0, "end_seconds": 5, "action": "The lift becomes forward motion."}
+                ],
+                "continuity_refs": ["crate"],
+                "negative_constraints": ["text", "hard cuts"],
+            },
+        }
+        p = self._project_with_scenes(
+            projects_root,
+            [scene],
+            [{
+                "id": "img-sc1",
+                "type": "image",
+                "path": "assets/images/sc1.png",
+                "scene_id": "sc1",
+                "source_tool": "image-model",
+                "prompt": "First-frame prompt for the marked crate.",
+            }],
+        )
+        _write(p / "artifacts" / "scene_plan.json", {
+            "version": "1.0",
+            "continuity_bible": {
+                "entities": [{
+                    "id": "crate",
+                    "canonical_name": "produce crate",
+                    "immutable_traits": ["red painted corner"],
+                }],
+                "locations": [],
+                "period": None,
+                "style": {"palette": ["red"], "lighting": "natural", "texture": "editorial"},
+                "camera_rules": [],
+                "prohibited_elements": [],
+            },
+            "scenes": [scene],
+        })
+        (p / "assets" / "images" / "sc1.png").write_bytes(b"\x89PNG")
+
+        card = self._card(p, "sc1")
+
+        assert card["takes"][0]["prompt"] == "First-frame prompt for the marked crate."
+        assert card["video_prompt"]["source"] == "scene_plan_preview"
+        assert "Generate a single continuous shot" in card["video_prompt"]["prompt"]
+        assert card["video_prompt"]["negative_prompt"] == "text, hard cuts"
+        assert card["video_prompt"]["temporal_beats"][0]["action"] == "The lift becomes forward motion."
+        assert card["story_contribution"] == "Turn waiting into movement."
+
+    def test_recorded_video_prompt_overrides_the_scene_preview(self, projects_root):
+        scene = {
+            "id": "sc1",
+            "type": "generated",
+            "start_seconds": 0,
+            "end_seconds": 5,
+            "video_prompt_spec": {
+                "single_shot": True,
+                "subject_motion": "Draft motion.",
+                "camera_motion": "Draft camera.",
+                "temporal_beats": [
+                    {"start_seconds": 0, "end_seconds": 5, "action": "Draft action."}
+                ],
+                "continuity_refs": [],
+                "negative_constraints": ["draft negative"],
+            },
+        }
+        p = self._project_with_scenes(
+            projects_root,
+            [scene],
+            [{
+                "id": "video-sc1",
+                "type": "video",
+                "path": "assets/video/sc1.mp4",
+                "scene_id": "sc1",
+                "source_tool": "wan",
+                "provider": "dashscope",
+                "model": "wan2.6-i2v-flash",
+                "prompt": "Exact submitted video prompt.",
+                "negative_prompt": "Exact submitted negative prompt.",
+            }],
+        )
+
+        card = self._card(p, "sc1")
+
+        assert card["video_prompt"] == {
+            "prompt": "Exact submitted video prompt.",
+            "negative_prompt": "Exact submitted negative prompt.",
+            "source": "asset_manifest",
+            "provider": "dashscope",
+            "model": "wan2.6-i2v-flash",
+            "temporal_beats": scene["video_prompt_spec"]["temporal_beats"],
+            "continuity_refs": [],
+        }

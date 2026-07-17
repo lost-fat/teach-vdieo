@@ -198,6 +198,19 @@ class TestBaseToolInstrumentation:
         assert "estimated_list_price" in board_js
         assert "est." in board_js
 
+    def test_image_review_ui_opens_a_shot_prompt_inspector(self):
+        board_js = (
+            Path(__file__).resolve().parent.parent.parent
+            / "backlot"
+            / "ui"
+            / "board.js"
+        ).read_text(encoding="utf-8")
+
+        assert "openShotPromptModal" in board_js
+        assert "VIDEO PROMPT" in board_js
+        assert "IMAGE PROMPT" in board_js
+        assert "NEGATIVE PROMPT" in board_js
+
     def test_execute_emits_error_event_and_reraises(self, tmp_path, monkeypatch):
         import lib.events as events_mod
         monkeypatch.setattr(events_mod, "PROJECTS_DIR", tmp_path)

@@ -3,8 +3,161 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 from schemas.artifacts import validate_artifact
+
+
+def test_article_scene_plan_supports_a_visual_story_arc_instead_of_sentence_illustration():
+    plan = {
+        "version": "1.0",
+        "narrative_units": [
+            {
+                "id": "unit-001",
+                "source_text": "The old journey was slow.",
+                "start_seconds": 0,
+                "end_seconds": 4,
+                "discourse_role": "setting",
+            },
+            {
+                "id": "unit-002",
+                "source_text": "A new railway changed the connection.",
+                "start_seconds": 4,
+                "end_seconds": 8,
+                "discourse_role": "historical_event",
+            },
+            {
+                "id": "unit-003",
+                "source_text": "People could arrive sooner.",
+                "start_seconds": 8,
+                "end_seconds": 12,
+                "discourse_role": "cause_effect",
+            },
+        ],
+        "visual_story_arc": {
+            "theme": "Connection changes everyday possibility.",
+            "visual_premise": "Follow one food crate from an uncertain departure to a timely arrival.",
+            "story_carrier": {
+                "id": "carrier-crate",
+                "kind": "object",
+                "description": "One recognizable produce crate that carries the transformation.",
+                "continuity_ref": "entity-crate",
+            },
+            "opening_state": "The crate waits beside an unreliable old route.",
+            "turning_point": "The new railway takes over the journey.",
+            "closing_state": "The same crate arrives fresh as the market opens.",
+            "recurring_motif": "A clock hand and the crate's red corner mark.",
+            "chapters": [
+                {
+                    "id": "chapter-setup",
+                    "role": "setup",
+                    "narrative_unit_ids": ["unit-001"],
+                    "objective": "Make waiting and distance tangible.",
+                    "entry_state": "The journey has not begun.",
+                    "exit_state": "Delay feels costly.",
+                },
+                {
+                    "id": "chapter-turn",
+                    "role": "turning_point",
+                    "narrative_unit_ids": ["unit-002"],
+                    "objective": "Let the carrier enter the new system.",
+                    "entry_state": "The old route dominates.",
+                    "exit_state": "The new route creates momentum.",
+                },
+                {
+                    "id": "chapter-payoff",
+                    "role": "payoff",
+                    "narrative_unit_ids": ["unit-003"],
+                    "objective": "Resolve the journey through a human-scale consequence.",
+                    "entry_state": "Arrival is still uncertain.",
+                    "exit_state": "The benefit is visible at the market.",
+                },
+            ],
+        },
+        "continuity_bible": {
+            "entities": [
+                {
+                    "id": "entity-crate",
+                    "canonical_name": "produce crate",
+                    "immutable_traits": ["weathered wood", "red painted corner"],
+                }
+            ],
+            "locations": [],
+            "period": None,
+            "style": {
+                "palette": ["earth brown", "railway red"],
+                "lighting": "natural documentary light",
+                "texture": "mature editorial realism",
+            },
+            "camera_rules": ["preserve screen direction"],
+            "prohibited_elements": ["readable generated text"],
+        },
+        "scenes": [
+            {
+                "id": "scene-001",
+                "type": "generated",
+                "description": "The crate waits in the foreground while the difficult route recedes behind it.",
+                "start_seconds": 0,
+                "end_seconds": 4,
+                "narrative_unit_ids": ["unit-001"],
+                "story_chapter_id": "chapter-setup",
+                "story_beat": "setup",
+                "story_contribution": "Introduce the carrier and make delay the problem.",
+                "visual_mode": "interpretive",
+                "visual_state_change": {
+                    "from": "still and unattended",
+                    "to": "claimed for a difficult departure",
+                },
+            },
+            {
+                "id": "scene-002",
+                "type": "generated",
+                "description": "A match action carries the same crate onto the new train.",
+                "start_seconds": 4,
+                "end_seconds": 8,
+                "narrative_unit_ids": ["unit-002"],
+                "story_chapter_id": "chapter-turn",
+                "story_beat": "turning_point",
+                "story_contribution": "Transform waiting into forward motion.",
+                "visual_mode": "bridge",
+                "visual_state_change": {"from": "blocked", "to": "moving"},
+                "continuity_from_scene_id": "scene-001",
+                "match_action": "Hands lift the crate in the same screen direction.",
+            },
+            {
+                "id": "scene-003",
+                "type": "generated",
+                "description": "The marked crate opens at a lively morning market.",
+                "start_seconds": 8,
+                "end_seconds": 12,
+                "narrative_unit_ids": ["unit-003"],
+                "story_chapter_id": "chapter-payoff",
+                "story_beat": "payoff",
+                "story_contribution": "Pay off the journey with fresh food arriving on time.",
+                "visual_mode": "payoff",
+                "visual_state_change": {"from": "in transit", "to": "useful to people"},
+                "continuity_from_scene_id": "scene-002",
+                "match_action": "The opening lid completes the prior unloading action.",
+            },
+        ],
+    }
+
+    validate_artifact("scene_plan", plan)
+
+
+def test_scene_director_requires_two_pass_article_dramaturgy():
+    director = (
+        Path(__file__).resolve().parent.parent.parent
+        / "skills"
+        / "pipelines"
+        / "english-textbook"
+        / "scene-director.md"
+    ).read_text(encoding="utf-8")
+
+    assert "Pass A — whole-article dramaturgy" in director
+    assert "Pass B — shot design" in director
+    assert "Narrative units are evidence, not shot requests" in director
+    assert "story carrier" in director
 
 
 def test_lesson_plan_can_lock_article_mode_to_measured_narration():
