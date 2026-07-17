@@ -128,6 +128,19 @@ def scene_plan_artifact(scenes: list, hero: str) -> dict:
             {"id": sid, "type": "generated", "description": desc,
              "start_seconds": s0, "end_seconds": s1, "script_section_id": f"s{i+1}",
              "hero_moment": sid == hero,
+             "story_beat": ["setup", "tension", "turning_point", "development", "payoff"][min(i, 4)],
+             "story_contribution": f"Advance the visual story through: {desc}",
+             "video_prompt_spec": {
+                 "single_shot": True,
+                 "subject_motion": f"The central action develops naturally: {desc}",
+                 "camera_motion": ["Hold, then gently reveal depth", "Track with the action", "Push toward the reveal", "Arc with stable screen direction"][i % 4],
+                 "temporal_beats": [
+                     {"start_seconds": 0, "end_seconds": s1 - s0,
+                      "action": f"The scene progresses from its opening state to the visual payoff: {desc}"}
+                 ],
+                 "continuity_refs": [],
+                 "negative_constraints": ["readable text", "hard cuts", "frozen subject"],
+             },
              "shot_language": {"shot_size": ["wide", "medium", "close_up", "extreme_close_up"][i % 4],
                                "camera_movement": ["static", "dolly_in", "pan_right", "orbital"][i % 4],
                                "lens_mm": [24, 50, 85, 35][i % 4],

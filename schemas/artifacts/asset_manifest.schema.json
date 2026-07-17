@@ -22,6 +22,11 @@
           "source_tool": { "type": "string" },
           "scene_id": { "type": "string" },
           "prompt": { "type": "string", "description": "Generation prompt if AI-generated" },
+          "negative_prompt": { "type": "string", "description": "Exact negative prompt submitted to the provider, when supported" },
+          "video_prompt_spec": {
+            "$ref": "#/$defs/videoPromptSpec",
+            "description": "Structured motion plan from which the submitted video prompts were compiled"
+          },
           "seed": { "type": "integer", "description": "Seed if applicable" },
           "model": { "type": "string", "description": "Model used for generation" },
           "cost_usd": { "type": "number", "minimum": 0 },
@@ -57,6 +62,45 @@
     },
     "total_cost_usd": { "type": "number", "minimum": 0 },
     "metadata": { "type": "object" }
+  },
+  "$defs": {
+    "videoPromptSpec": {
+      "type": "object",
+      "required": ["single_shot", "subject_motion", "camera_motion", "temporal_beats", "continuity_refs", "negative_constraints"],
+      "properties": {
+        "single_shot": { "type": "boolean" },
+        "subject_motion": { "type": "string", "minLength": 1 },
+        "camera_motion": { "type": "string", "minLength": 1 },
+        "temporal_beats": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["start_seconds", "end_seconds", "action"],
+            "properties": {
+              "start_seconds": { "type": "number", "minimum": 0 },
+              "end_seconds": { "type": "number", "minimum": 0 },
+              "action": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "foreground_event": { "type": "string", "minLength": 1 },
+        "visual_payoff": { "type": "string", "minLength": 1 },
+        "continuity_refs": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "caption_safe_area": { "type": "string", "minLength": 1 },
+        "negative_constraints": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }

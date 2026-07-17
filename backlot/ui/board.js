@@ -291,6 +291,63 @@ function openNarrModal(card) {
   modal.classList.add("open");
 }
 
+function promptBlock(label, text, extra = "") {
+  return el("section", { class: `prompt-block ${extra}`.trim() },
+    el("div", { class: "prompt-label" }, label),
+    el("pre", {}, text || "Not recorded yet."));
+}
+
+function openShotPromptModal(s, card, asset) {
+  const videoPrompt = card.video_prompt || {};
+  const beats = Array.isArray(videoPrompt.temporal_beats) ? videoPrompt.temporal_beats : [];
+  const refs = Array.isArray(videoPrompt.continuity_refs) ? videoPrompt.continuity_refs : [];
+  const sourceLabel = videoPrompt.source === "asset_manifest"
+    ? "EXACT SUBMITTED PROMPT"
+    : videoPrompt.source === "scene_plan_preview"
+      ? "PREFLIGHT · COMPILED FROM SCENE PLAN"
+      : "PROMPT NOT RECORDED";
+  const meta = [
+    sceneLabel(card.id),
+    card.story_beat ? String(card.story_beat).replaceAll("_", " ") : null,
+    fmtDuration(card.duration_seconds),
+  ].filter(Boolean).join(" · ");
+
+  modal.innerHTML = "";
+  modal.append(
+    el("span", { class: "modal-close", onclick: closeModal }, "ESC · CLOSE"),
+    el("div", { class: "modal-page prompt-modal", role: "dialog", "aria-modal": "true", "aria-label": `${sceneLabel(card.id)} prompt inspector` },
+      el("div", { class: "prompt-head" },
+        el("div", {},
+          el("div", { class: "prompt-kicker" }, "SHOT PROMPTS"),
+          el("h2", {}, card.description || sceneLabel(card.id)),
+          el("div", { class: "prompt-meta" }, `${meta} · ${sourceLabel}`)),
+        videoPrompt.model ? el("span", { class: "prompt-model" }, videoPrompt.model) : null),
+      asset && asset.exists && asset.type === "image"
+        ? el("div", { class: "prompt-preview" },
+          el("img", { src: thumbURL(s.project_id, asset.path, 960), alt: `Selected image for ${sceneLabel(card.id)}` }))
+        : null,
+      card.story_contribution
+        ? el("div", { class: "prompt-story" },
+          el("span", {}, "STORY CONTRIBUTION"),
+          card.story_contribution)
+        : null,
+      el("div", { class: "prompt-grid" },
+        promptBlock("IMAGE PROMPT", asset && asset.prompt),
+        promptBlock("VIDEO PROMPT", videoPrompt.prompt, "video-prompt"),
+        promptBlock("NEGATIVE PROMPT", videoPrompt.negative_prompt)),
+      beats.length ? el("section", { class: "prompt-beats" },
+        el("div", { class: "prompt-label" }, "TEMPORAL BEATS"),
+        ...beats.map((beat) => el("div", { class: "prompt-beat" },
+          el("span", {}, `${beat.start_seconds}–${beat.end_seconds}s`),
+          el("p", {}, beat.action || "")))) : null,
+      refs.length ? el("div", { class: "prompt-refs" },
+        el("span", { class: "prompt-label" }, "CONTINUITY"),
+        ...refs.map((ref) => el("span", { class: "prompt-ref" }, ref))) : null,
+    ),
+  );
+  modal.classList.add("open");
+}
+
 function closeModal() { modal.classList.remove("open"); }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
 modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
@@ -457,8 +514,21 @@ function sceneCard(s, card) {
           el("div", { class: "spec-desc" }, card.description || "asset unavailable"),
           el("div", { class: "spec-shot" }, [card.framing, card.movement].filter(Boolean).join(" · ").slice(0, 70))));
       };
-      thumb = el("div", { class: "thumb approved" }, img,
-        v.snapshot ? el("span", { class: "badge" }, "snapshot") : (badge ? el("span", { class: "badge" }, badge) : null));
+      thumb = el("div", {
+        class: "thumb approved promptable",
+        role: "button",
+        tabindex: "0",
+        title: "View image and video prompts",
+        onclick: () => openShotPromptModal(s, card, v),
+        onkeydown: (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openShotPromptModal(s, card, v);
+          }
+        },
+      }, img,
+      v.snapshot ? el("span", { class: "badge" }, "snapshot") : (badge ? el("span", { class: "badge" }, badge) : null),
+      el("span", { class: "prompt-hint" }, "VIEW PROMPTS"));
     }
   } else if (card.type === "animation") {
     // Bespoke/atelier scene with no snapshot yet — name it as such rather
@@ -509,7 +579,16 @@ function sceneCard(s, card) {
         || (t.path && t.path === card.visual.path)
         || (t.id && t.id === card.visual.id)
       );
-      const tk = el("span", { class: `tk${isActive ? " active" : ""}`, title: `take ${i + 1}` });
+      const attrs = {
+        class: `tk${isActive ? " active" : ""}`,
+        title: t.type === "image" ? `View prompts for take ${i + 1}` : `take ${i + 1}`,
+      };
+      if (t.type === "image") {
+        attrs.type = "button";
+        attrs["aria-label"] = `View prompts for ${sceneLabel(card.id)} take ${i + 1}`;
+        attrs.onclick = () => openShotPromptModal(s, card, t);
+      }
+      const tk = el(t.type === "image" ? "button" : "span", attrs);
       if (t.exists && t.type === "image") tk.append(el("img", { src: thumbURL(s.project_id, t.path, 320), loading: "lazy", alt: "" }));
       takes.append(tk);
     });

@@ -27,6 +27,60 @@
         "additionalProperties": false
       }
     },
+    "visual_story_arc": {
+      "type": "object",
+      "description": "Whole-article dramatic design. Source units supply evidence to this arc; they are not one-to-one shot requests.",
+      "required": ["theme", "visual_premise", "story_carrier", "opening_state", "turning_point", "closing_state", "recurring_motif", "chapters"],
+      "properties": {
+        "theme": { "type": "string", "minLength": 1 },
+        "visual_premise": { "type": "string", "minLength": 1 },
+        "story_carrier": {
+          "type": "object",
+          "description": "A recurring person, object, place, process, question, motif, or ensemble whose changing state carries the visual story.",
+          "required": ["id", "kind", "description"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "kind": {
+              "type": "string",
+              "enum": ["person", "object", "place", "process", "question", "motif", "ensemble"]
+            },
+            "description": { "type": "string", "minLength": 1 },
+            "continuity_ref": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "opening_state": { "type": "string", "minLength": 1 },
+        "turning_point": { "type": "string", "minLength": 1 },
+        "closing_state": { "type": "string", "minLength": 1 },
+        "recurring_motif": { "type": "string", "minLength": 1 },
+        "chapters": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "type": "object",
+            "required": ["id", "role", "narrative_unit_ids", "objective", "entry_state", "exit_state"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "role": {
+                "type": "string",
+                "enum": ["hook", "setup", "tension", "turning_point", "development", "payoff", "reflection"]
+              },
+              "narrative_unit_ids": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "objective": { "type": "string", "minLength": 1 },
+              "entry_state": { "type": "string", "minLength": 1 },
+              "exit_state": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "continuity_bible": {
       "type": "object",
       "description": "Article-level visual invariants reused by every scene and provider prompt.",
@@ -111,6 +165,44 @@
           "visual_role": {
             "type": "string",
             "enum": ["setting", "movement", "comparison", "cause_effect", "process", "historical_event", "abstract_concept", "dialogue", "transition"]
+          },
+          "story_chapter_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Visual-story chapter advanced by this scene; chapters may span multiple provider clips."
+          },
+          "story_beat": {
+            "type": "string",
+            "enum": ["hook", "setup", "tension", "turning_point", "development", "payoff", "reflection"]
+          },
+          "story_contribution": {
+            "type": "string",
+            "minLength": 1,
+            "description": "How the shot changes the whole visual story, not a paraphrase of its narration sentence."
+          },
+          "visual_mode": {
+            "type": "string",
+            "enum": ["direct_evidence", "interpretive", "metaphor", "bridge", "payoff"],
+            "description": "Relationship between narrated facts and the chosen visual."
+          },
+          "visual_state_change": {
+            "type": "object",
+            "required": ["from", "to"],
+            "properties": {
+              "from": { "type": "string", "minLength": 1 },
+              "to": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          },
+          "continuity_from_scene_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Previous generated scene whose carrier, screen direction, or end frame should continue."
+          },
+          "match_action": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Action, shape, direction, or motif used to make a technical clip boundary feel continuous."
           },
           "video_prompt_spec": {
             "type": "object",
@@ -242,6 +334,20 @@
     },
     "metadata": { "type": "object" }
   },
+  "allOf": [
+    {
+      "if": { "required": ["visual_story_arc"] },
+      "then": {
+        "properties": {
+          "scenes": {
+            "items": {
+              "required": ["narrative_unit_ids", "story_chapter_id", "story_beat", "story_contribution", "visual_mode", "visual_state_change"]
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "continuitySubject": {
       "type": "object",

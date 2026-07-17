@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 from lib.events import read_events
 from lib.paths import PROJECTS_DIR, REPO_ROOT  # single source of truth (env-overridable)
+from lib.shot_prompt_builder import build_video_prompt
 
 MEDIA_IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
 MEDIA_VIDEO_EXT = {".mp4", ".webm", ".mov"}
@@ -326,6 +327,8 @@ def _asset_entry(project_dir: Path, asset: dict) -> dict:
         "exists": exists,
         "renderable": renderable,
         "prompt": asset.get("prompt"),
+        "negative_prompt": asset.get("negative_prompt"),
+        "video_prompt_spec": asset.get("video_prompt_spec"),
         "model": asset.get("model"),
         "source_tool": asset.get("source_tool"),
         "provider": asset.get("provider"),
@@ -388,6 +391,59 @@ def _find_script_section(scene: dict, sections: list[dict]) -> Optional[dict]:
     return best
 
 
+def _scene_video_prompt(
+    scene: dict[str, Any],
+    scene_assets: list[dict[str, Any]],
+    continuity_bible: dict[str, Any],
+) -> Optional[dict[str, Any]]:
+    """Return the exact submitted video prompt, or a safe preflight preview.
+
+    During first-frame review the video asset usually does not exist yet, so
+    Backlot compiles the provider-neutral scene spec without making an API
+    call. Once generation has happened, the manifest record wins because it
+    represents the actual payload submitted to the provider.
+    """
+
+    spec = scene.get("video_prompt_spec")
+    recorded = next(
+        (
+            asset
+            for asset in reversed(scene_assets)
+            if asset.get("type") == "video" and asset.get("prompt")
+        ),
+        None,
+    )
+    if recorded:
+        recorded_spec = recorded.get("video_prompt_spec")
+        prompt_spec = recorded_spec if isinstance(recorded_spec, dict) else spec
+        prompt_spec = prompt_spec if isinstance(prompt_spec, dict) else {}
+        return {
+            "prompt": recorded.get("prompt"),
+            "negative_prompt": recorded.get("negative_prompt") or "",
+            "source": "asset_manifest",
+            "provider": recorded.get("provider"),
+            "model": recorded.get("model"),
+            "temporal_beats": prompt_spec.get("temporal_beats") or [],
+            "continuity_refs": prompt_spec.get("continuity_refs") or [],
+        }
+
+    if not isinstance(spec, dict):
+        return None
+    try:
+        compiled = build_video_prompt(scene, continuity_bible, provider="wan-i2v")
+    except (KeyError, TypeError, ValueError):
+        return None
+    return {
+        "prompt": compiled["prompt"],
+        "negative_prompt": compiled["negative_prompt"],
+        "source": "scene_plan_preview",
+        "provider": None,
+        "model": None,
+        "temporal_beats": spec.get("temporal_beats") or [],
+        "continuity_refs": spec.get("continuity_refs") or [],
+    }
+
+
 def _build_storyboard(
     project_dir: Path,
     artifacts: dict[str, dict],
@@ -399,6 +455,7 @@ def _build_storyboard(
         return None
     sections = (artifacts.get("script") or {}).get("sections") or []
     manifest_assets = (artifacts.get("asset_manifest") or {}).get("assets") or []
+    continuity_bible = scene_plan.get("continuity_bible") or {}
 
     def scene_key(value: Any) -> str:
         # 0 is a legitimate scene id — only None/absent collapses to "".
@@ -460,6 +517,11 @@ def _build_storyboard(
             "hero_moment": bool(scene.get("hero_moment")),
             "shot_language": scene.get("shot_language"),
             "shot_intent": scene.get("shot_intent"),
+            "story_chapter_id": scene.get("story_chapter_id"),
+            "story_beat": scene.get("story_beat"),
+            "story_contribution": scene.get("story_contribution"),
+            "visual_mode": scene.get("visual_mode"),
+            "visual_state_change": scene.get("visual_state_change"),
             "framing": scene.get("framing"),
             "movement": scene.get("movement"),
             "narration": (section or {}).get("text"),
@@ -467,6 +529,7 @@ def _build_storyboard(
             "required_assets": scene.get("required_assets") or [],
             "visual": active_visual,
             "takes": renderable,
+            "video_prompt": _scene_video_prompt(scene, scene_assets, continuity_bible),
             "audio": audio,
             "generating": generating.get(sid) is not None,
             "generating_tool": (generating.get(sid) or {}).get("tool"),
@@ -480,6 +543,7 @@ def _build_storyboard(
         "scenes": cards,
         "total_duration_seconds": total,
         "style_playbook": scene_plan.get("style_playbook"),
+        "visual_story_arc": scene_plan.get("visual_story_arc"),
     }
 
 
