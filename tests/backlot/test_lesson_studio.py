@@ -49,8 +49,22 @@ class TestLessonStudioApi:
         response = client.get("/studio")
 
         assert response.status_code == 200
-        assert "Lesson Studio" in response.text
+        assert "英语课文视频工作台" in response.text
         assert 'id="lessonText"' in response.text
+
+    def test_config_exposes_locked_video_duration_envelope(self, client):
+        response = client.get("/api/lesson-studio/config")
+
+        assert response.status_code == 200
+        assert response.json()["video_output"] == {
+            "duration_min_seconds": 2,
+            "duration_max_seconds": 15,
+            "duration_default_seconds": 5,
+            "planned_scene_seconds": 14,
+            "duration_step_seconds": 1,
+            "resolutions": ["720P", "1080P"],
+            "fps": 30,
+        }
 
     def test_create_project_locks_the_source_and_returns_studio_url(
         self, client, projects_root
@@ -178,5 +192,11 @@ class TestLessonStudioUiContract:
         assert "qwen3.7-plus" in html
         assert "生成首帧" in js
         assert "qwen-image-2.0-pro" in js
-        assert "VIDEO PROMPT" in js
+        assert "图片生成提示词" in js
+        assert "视频生成提示词" in js
+        assert "时间动作节拍" in js
+        assert "计划首帧" in js
+        assert "个版本" in js
+        assert '["turning_point", "转折"]' in js
+        assert "2–15 秒" in html
         assert "/api/lesson-studio/projects" in js
