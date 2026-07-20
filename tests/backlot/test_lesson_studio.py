@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,7 +14,10 @@ from backlot import server as server_mod
 from backlot import state as state_mod
 from backlot.lesson_studio import (
     LessonStudioValidationError,
+    _append_lesson_asset,
+    _build_scene_plan,
     _compile_prompt_cards,
+    _validate_planner_json,
     advance_lesson_stage,
     generate_lesson_scene_video,
 )
@@ -49,6 +53,66 @@ ARTICLE = (
     "Before it opened, the old journey was slow and unreliable. "
     "Today, food reaches the market sooner and local businesses benefit."
 )
+
+
+def _planner_fixture(*, people: bool = True) -> tuple[str, dict]:
+    excerpts = [
+        "Local workers use the new railway.",
+        "A businessman reaches the city on time.",
+        "Families can buy fresh food sooner.",
+    ]
+    presence = ["supporting", "primary", "background"] if people else ["none"] * 3
+    human_actions = [
+        "当地铁路职工在站台上引导乘客有序上车。",
+        "一名当地商人提着公文包快步走出车站。",
+        "当地家庭在市场摊位前挑选新鲜蔬菜。",
+    ] if people else ["", "", ""]
+    beats = ["hook", "turning_point", "payoff"]
+    scenes = []
+    for index, excerpt in enumerate(excerpts):
+        scenes.append({
+            "source_text": excerpt,
+            "visual_role": "cause_effect",
+            "story_beat": beats[index],
+            "chapter_objective": f"让第{index + 1}个阶段发生清晰变化。",
+            "story_contribution": f"推进第{index + 1}个故事阶段。",
+            "visual_mode": "interpretive",
+            "description": f"肯尼亚铁路沿线的第{index + 1}个电影感连续场景。",
+            "state_from": f"第{index + 1}个阶段开始前的状态。",
+            "state_to": f"第{index + 1}个阶段结束后的状态。",
+            "subject_motion": "列车与前景人物沿同一方向稳定移动。",
+            "camera_motion": "摄影机低速侧移并产生前景视差。",
+            "temporal_actions": [
+                "前景人物进入画面并建立空间关系。",
+                "摄影机跟随行动穿过站台或市场。",
+                "主体抵达目的地并形成可见回报。",
+            ],
+            "foreground_event": "一件贴近镜头的行李快速掠过形成视差。",
+            "visual_payoff": "人物的行动结果在镜头结尾清晰可见。",
+            "match_action": "沿画面右侧延续的前进动作。",
+            "human_presence": presence[index],
+            "human_action": human_actions[index],
+        })
+    return " ".join(excerpts), {
+        "theme": "可靠交通让普通人的日常生活发生变化。",
+        "visual_premise": "跟随一只旧公文包穿过铁路沿线，见证速度如何转化为生活改善。",
+        "carrier": {
+            "kind": "object",
+            "name": "棕色旧公文包",
+            "description": "它由不同人物接力携带，将铁路、商业和家庭生活串成一条故事线。",
+            "traits": ["磨旧的棕色皮革", "黄铜搭扣"],
+        },
+        "opening_state": "公文包停在拥挤而缓慢的旧站台。",
+        "turning_point": "公文包随新列车快速穿过沿线城镇。",
+        "closing_state": "公文包抵达摆满新鲜食物的市场。",
+        "recurring_motif": "公文包从画面左侧向右侧的接力移动。",
+        "style": {
+            "palette": ["自然大地色", "铁路蓝"],
+            "lighting": "肯尼亚自然日光，室内外方向保持一致。",
+            "texture": "克制而有生活气息的电影纪录片写实质感。",
+        },
+        "scenes": scenes,
+    }
 
 
 class TestLessonStudioApi:
@@ -266,6 +330,59 @@ def test_chinese_prompt_compiler_keeps_provider_prompts_in_chinese():
     assert "0–5 秒" in card["video_prompt"]
     assert card["negative_video_prompt"].startswith("禁止")
     assert "Generate a single continuous shot" not in card["video_prompt"]
+
+
+def test_planner_validation_rejects_english_generation_fields():
+    source, raw = _planner_fixture()
+    raw["scenes"][0]["description"] = "An empty train carriage beside the platform."
+
+    with pytest.raises(LessonStudioValidationError, match="简体中文"):
+        _validate_planner_json(raw, source)
+
+
+def test_people_relevant_article_cannot_plan_every_scene_without_people():
+    source, raw = _planner_fixture(people=False)
+
+    with pytest.raises(LessonStudioValidationError, match="人物"):
+        _validate_planner_json(raw, source)
+
+
+def test_human_action_is_compiled_into_image_and_video_prompts():
+    source, raw = _planner_fixture()
+
+    plan = _build_scene_plan(raw, source)
+    card = _compile_prompt_cards(plan)["shots"][0]
+
+    assert "当地铁路职工在站台上引导乘客有序上车" in plan["scenes"][0]["description"]
+    assert "当地铁路职工在站台上引导乘客有序上车" in card["image_prompt_preview"]
+    assert "当地铁路职工在站台上引导乘客有序上车" in card["video_prompt"]
+
+
+def test_parallel_asset_commits_merge_instead_of_overwriting(tmp_path):
+    project = tmp_path / "lesson"
+    artifacts = project / "artifacts"
+    artifacts.mkdir(parents=True)
+    manifest_path = artifacts / "asset_manifest.json"
+    manifest_path.write_text(json.dumps({"version": "1.0", "assets": []}))
+
+    def commit(scene_number):
+        _append_lesson_asset(project, {
+            "id": f"image-sc_{scene_number}-take-1",
+            "type": "image",
+            "path": f"assets/images/sc_{scene_number}-take-1.png",
+            "source_tool": "dashscope_image",
+            "scene_id": f"sc_{scene_number}",
+            "cost_usd": 0.02,
+        })
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(commit, range(1, 5)))
+
+    manifest = json.loads(manifest_path.read_text())
+    assert {asset["scene_id"] for asset in manifest["assets"]} == {
+        "sc_1", "sc_2", "sc_3", "sc_4",
+    }
+    assert manifest["total_cost_usd"] == 0.08
 
 
 def test_stage_advance_requires_complete_assets(tmp_path):
