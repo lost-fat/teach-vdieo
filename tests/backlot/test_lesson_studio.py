@@ -10,6 +10,11 @@ from fastapi.testclient import TestClient
 
 from backlot import server as server_mod
 from backlot import state as state_mod
+from backlot.lesson_studio import (
+    LessonStudioValidationError,
+    _compile_prompt_cards,
+    advance_lesson_stage,
+)
 
 
 @pytest.fixture
@@ -169,6 +174,39 @@ class TestLessonStudioApi:
         assert response.json()["asset"]["asset_id"] == "image-sc_1-take-1"
         assert called == {"project_dir": project_dir, "scene_id": "sc_1"}
 
+    def test_generate_one_video_calls_the_locked_scene_action(
+        self, client, projects_root, monkeypatch
+    ):
+        created = client.post(
+            "/api/lesson-studio/projects",
+            json={"title": "Animate Me", "source_text": ARTICLE},
+        ).json()
+        project_id = created["project_id"]
+        called = {}
+
+        def fake_generate(project_dir_arg, scene_id):
+            called.update({"project_dir": project_dir_arg, "scene_id": scene_id})
+            return {"asset_id": "video-sc_1-take-1", "scene_id": scene_id}
+
+        monkeypatch.setattr(
+            server_mod,
+            "generate_lesson_scene_video",
+            fake_generate,
+            raising=False,
+        )
+
+        response = client.post(
+            f"/api/lesson-studio/projects/{project_id}/scenes/sc_1/video"
+        )
+
+        assert response.status_code == 200
+        assert response.json()["stage"] == "videos_in_review"
+        assert response.json()["asset"]["asset_id"] == "video-sc_1-take-1"
+        assert called == {
+            "project_dir": projects_root / project_id,
+            "scene_id": "sc_1",
+        }
+
     def test_scene_action_rejects_path_like_scene_ids(self, client):
         created = client.post(
             "/api/lesson-studio/projects",
@@ -180,6 +218,97 @@ class TestLessonStudioApi:
         )
 
         assert response.status_code in {400, 404}
+
+
+def test_chinese_prompt_compiler_keeps_provider_prompts_in_chinese():
+    plan = {
+        "continuity_bible": {
+            "entities": [{
+                "canonical_name": "红角木箱",
+                "immutable_traits": ["木质", "一角涂有红漆"],
+            }],
+            "style": {
+                "palette": ["大地色", "铁路蓝"],
+                "lighting": "自然纪录片日光",
+                "texture": "电影感编辑写实质感",
+            },
+        },
+        "scenes": [{
+            "id": "sc_1",
+            "description": "低机位近景看见红角木箱停在旧铁轨旁。",
+            "start_seconds": 0,
+            "end_seconds": 14,
+            "story_chapter_id": "chapter-01",
+            "story_beat": "setup",
+            "story_contribution": "建立等待与距离感。",
+            "video_prompt_spec": {
+                "single_shot": True,
+                "subject_motion": "木箱上的绳子随风轻动。",
+                "camera_motion": "摄像机缓慢侧移并向前推进。",
+                "temporal_beats": [
+                    {"start_seconds": 0, "end_seconds": 5, "action": "尘土掠过木箱。"},
+                    {"start_seconds": 5, "end_seconds": 10, "action": "旧铁轨逐渐显现。"},
+                    {"start_seconds": 10, "end_seconds": 14, "action": "远处旧火车驶近。"},
+                ],
+                "continuity_refs": ["carrier-main"],
+                "caption_safe_area": "画面下方保留字幕安全区。",
+                "negative_constraints": ["不要可读文字", "不要镜头内硬切"],
+            },
+        }],
+    }
+
+    card = _compile_prompt_cards(plan)["shots"][0]
+
+    assert card["image_prompt_preview"].startswith("英语教学视频的电影感首帧")
+    assert card["video_prompt"].startswith("生成一个完整连续的单镜头")
+    assert "0–5 秒" in card["video_prompt"]
+    assert card["negative_video_prompt"].startswith("禁止")
+    assert "Generate a single continuous shot" not in card["video_prompt"]
+
+
+def test_stage_advance_requires_complete_assets(tmp_path):
+    project = tmp_path / "lesson"
+    artifacts = project / "artifacts"
+    artifacts.mkdir(parents=True)
+    (project / "studio_state.json").write_text(json.dumps({
+        "version": "1.0",
+        "project_id": "lesson",
+        "stage": "storyboard_ready",
+        "status": "awaiting_human",
+    }))
+    (artifacts / "scene_plan.json").write_text(json.dumps({
+        "version": "1.0",
+        "scenes": [{
+            "id": "sc_1",
+            "type": "generated",
+            "description": "一个连续镜头",
+            "start_seconds": 0,
+            "end_seconds": 14,
+        }],
+    }))
+    manifest_path = artifacts / "asset_manifest.json"
+    manifest_path.write_text(json.dumps({"version": "1.0", "assets": []}))
+
+    with pytest.raises(LessonStudioValidationError, match="1 张首帧"):
+        advance_lesson_stage(project)
+
+    manifest_path.write_text(json.dumps({
+        "version": "1.0",
+        "assets": [{"id": "i1", "type": "image", "path": "i.png", "source_tool": "mock", "scene_id": "sc_1"}],
+    }))
+    assert advance_lesson_stage(project)["stage"] == "video_ready"
+
+    with pytest.raises(LessonStudioValidationError, match="1 段视频"):
+        advance_lesson_stage(project)
+
+    manifest_path.write_text(json.dumps({
+        "version": "1.0",
+        "assets": [
+            {"id": "i1", "type": "image", "path": "i.png", "source_tool": "mock", "scene_id": "sc_1"},
+            {"id": "v1", "type": "video", "path": "v.mp4", "source_tool": "mock", "scene_id": "sc_1"},
+        ],
+    }))
+    assert advance_lesson_stage(project)["stage"] == "compose_ready"
 
 
 class TestLessonStudioUiContract:
@@ -200,6 +329,20 @@ class TestLessonStudioUiContract:
         assert "个版本" in js
         assert '["turning_point", "转折"]' in js
         assert "2–15 秒" in html
+        assert 'id="nextStep"' in html
+        assert "确认全部首帧，进入视频生成" in js
+        assert "确认全部视频，进入字幕与合成" in js
+        assert "/advance" in js
+        assert "/video" in js
         assert ".studio-shell [hidden]" in css
         assert "display: none !important" in css
         assert "/api/lesson-studio/projects" in js
+
+    def test_planner_contract_requires_chinese_generation_fields(self):
+        contract = (
+            Path(__file__).resolve().parents[2]
+            / "skills/pipelines/english-textbook/studio-preview-planner.md"
+        ).read_text(encoding="utf-8")
+
+        assert "`source_text` 必须保留英文原文" in contract
+        assert "其余所有文本字段必须使用简体中文" in contract
