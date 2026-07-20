@@ -6,7 +6,7 @@ sentence-by-sentence illustration exercise.
 
 Requirements:
 
-- Use 3–12 scenes. Each scene is one continuous 14-second generated clip.
+- Use 3–12 scenes. Each scene is one continuous 5-second generated clip.
 - `source_text` 必须保留英文原文，不得翻译或改写。
 - 除 `source_text` 外，其余所有文本字段必须使用简体中文。字段枚举值仍使用下方指定的英文代码。
 - `source_text` values, joined with one space, must reproduce the complete
@@ -73,9 +73,9 @@ JSON shape:
       "subject_motion": "consequential subject action",
       "camera_motion": "camera response to that action",
       "temporal_actions": [
-        "0–5 second action",
-        "5–10 second action",
-        "10–14 second action and payoff"
+        "0–2 秒：建立动作",
+        "2–4 秒：动作发展",
+        "4–5 秒：动作结果与视觉回报"
       ],
       "foreground_event": "foreground parallax event",
       "visual_payoff": "final visible payoff",

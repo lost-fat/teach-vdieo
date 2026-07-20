@@ -232,7 +232,7 @@ function sceneCard(card, index, providerReady, phase) {
         generate,
         el("button", { class: "shot-prompts", type: "button", onclick: () => openPrompts(card) }, "查看提示词")),
       el("p", { class: "shot-contribution" }, generatingVideo || composeReady
-        ? "wan2.6-i2v-flash · 1080P · 14 秒 · 静音 · 免费额度用完即停"
+        ? `wan2.6-i2v-flash · 1080P · ${Math.round(card.duration_seconds || 5)} 秒 · 静音 · 免费额度用完即停`
         : "qwen-image-2.0-pro · 2688×1536 · 免费额度用完即停"),
     ));
 }

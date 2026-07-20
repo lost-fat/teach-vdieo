@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 from fastapi.staticfiles import StaticFiles
 
 from backlot.lesson_studio import (
+    CLIP_SECONDS,
     LessonStudioProviderError,
     LessonStudioValidationError,
     advance_lesson_stage,
@@ -225,7 +226,7 @@ def create_app() -> FastAPI:
                 "duration_min_seconds": 2,
                 "duration_max_seconds": 15,
                 "duration_default_seconds": 5,
-                "planned_scene_seconds": 14,
+                "planned_scene_seconds": CLIP_SECONDS,
                 "duration_step_seconds": 1,
                 "resolutions": ["720P", "1080P"],
                 "fps": 30,

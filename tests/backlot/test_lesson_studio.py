@@ -132,7 +132,7 @@ class TestLessonStudioApi:
             "duration_min_seconds": 2,
             "duration_max_seconds": 15,
             "duration_default_seconds": 5,
-            "planned_scene_seconds": 14,
+            "planned_scene_seconds": 5,
             "duration_step_seconds": 1,
             "resolutions": ["720P", "1080P"],
             "fps": 30,
@@ -215,7 +215,7 @@ class TestLessonStudioApi:
                     "type": "generated",
                     "description": "A crate begins its journey.",
                     "start_seconds": 0,
-                    "end_seconds": 14,
+                    "end_seconds": 5,
                 }],
             })
         )
@@ -304,7 +304,7 @@ def test_chinese_prompt_compiler_keeps_provider_prompts_in_chinese():
             "id": "sc_1",
             "description": "低机位近景看见红角木箱停在旧铁轨旁。",
             "start_seconds": 0,
-            "end_seconds": 14,
+            "end_seconds": 5,
             "story_chapter_id": "chapter-01",
             "story_beat": "setup",
             "story_contribution": "建立等待与距离感。",
@@ -313,9 +313,9 @@ def test_chinese_prompt_compiler_keeps_provider_prompts_in_chinese():
                 "subject_motion": "木箱上的绳子随风轻动。",
                 "camera_motion": "摄像机缓慢侧移并向前推进。",
                 "temporal_beats": [
-                    {"start_seconds": 0, "end_seconds": 5, "action": "尘土掠过木箱。"},
-                    {"start_seconds": 5, "end_seconds": 10, "action": "旧铁轨逐渐显现。"},
-                    {"start_seconds": 10, "end_seconds": 14, "action": "远处旧火车驶近。"},
+                    {"start_seconds": 0, "end_seconds": 2, "action": "尘土掠过木箱。"},
+                    {"start_seconds": 2, "end_seconds": 4, "action": "旧铁轨逐渐显现。"},
+                    {"start_seconds": 4, "end_seconds": 5, "action": "远处旧火车驶近。"},
                 ],
                 "continuity_refs": ["carrier-main"],
                 "caption_safe_area": "画面下方保留字幕安全区。",
@@ -328,7 +328,7 @@ def test_chinese_prompt_compiler_keeps_provider_prompts_in_chinese():
 
     assert card["image_prompt_preview"].startswith("英语教学视频的电影感首帧")
     assert card["video_prompt"].startswith("生成一个完整连续的单镜头")
-    assert "0–5 秒" in card["video_prompt"]
+    assert "0–2 秒" in card["video_prompt"]
     assert card["negative_video_prompt"].startswith("禁止")
     assert "Generate a single continuous shot" not in card["video_prompt"]
 
@@ -363,6 +363,14 @@ def test_human_action_is_compiled_into_image_and_video_prompts():
     plan = _build_scene_plan(raw, source)
     card = _compile_prompt_cards(plan)["shots"][0]
 
+    assert plan["scenes"][0]["start_seconds"] == 0
+    assert plan["scenes"][0]["end_seconds"] == 5
+    assert plan["scenes"][1]["start_seconds"] == 5
+    assert plan["scenes"][0]["video_prompt_spec"]["temporal_beats"] == [
+        {"start_seconds": 0, "end_seconds": 2, "action": "前景人物进入画面并建立空间关系。"},
+        {"start_seconds": 2, "end_seconds": 4, "action": "摄影机跟随行动穿过站台或市场。"},
+        {"start_seconds": 4, "end_seconds": 5, "action": "主体抵达目的地并形成可见回报。"},
+    ]
     assert "当地铁路职工在站台上引导乘客有序上车" in plan["scenes"][0]["description"]
     assert "当地铁路职工在站台上引导乘客有序上车" in card["image_prompt_preview"]
     assert "当地铁路职工在站台上引导乘客有序上车" in card["video_prompt"]
@@ -447,7 +455,7 @@ def test_stage_advance_requires_complete_assets(tmp_path):
             "type": "generated",
             "description": "一个连续镜头",
             "start_seconds": 0,
-            "end_seconds": 14,
+            "end_seconds": 5,
         }],
     }))
     manifest_path = artifacts / "asset_manifest.json"
@@ -487,9 +495,9 @@ def test_scene_video_generation_uses_locked_wan_contract(tmp_path, monkeypatch):
         "subject_motion": "列车稳定向前行驶。",
         "camera_motion": "摄像机缓慢侧移。",
         "temporal_beats": [
-            {"start_seconds": 0, "end_seconds": 5, "action": "列车进入画面。"},
-            {"start_seconds": 5, "end_seconds": 10, "action": "前景树木形成视差。"},
-            {"start_seconds": 10, "end_seconds": 14, "action": "列车驶向城市。"},
+            {"start_seconds": 0, "end_seconds": 2, "action": "列车进入画面。"},
+            {"start_seconds": 2, "end_seconds": 4, "action": "前景树木形成视差。"},
+            {"start_seconds": 4, "end_seconds": 5, "action": "列车驶向城市。"},
         ],
         "continuity_refs": ["carrier-main"],
         "caption_safe_area": "下方留出字幕空间。",
@@ -502,7 +510,7 @@ def test_scene_video_generation_uses_locked_wan_contract(tmp_path, monkeypatch):
             "type": "generated",
             "description": "列车驶过草原。",
             "start_seconds": 0,
-            "end_seconds": 14,
+            "end_seconds": 5,
             "video_prompt_spec": spec,
         }],
     }))
@@ -541,7 +549,7 @@ def test_scene_video_generation_uses_locked_wan_contract(tmp_path, monkeypatch):
 
     assert result["asset_id"] == "video-sc_1-take-1"
     assert captured["model"] == "wan2.6-i2v-flash"
-    assert captured["duration"] == 14
+    assert captured["duration"] == 5
     assert captured["resolution"] == "1080P"
     assert captured["audio"] is False
     assert captured["prompt_extend"] is False

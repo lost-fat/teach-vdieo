@@ -29,7 +29,8 @@ from tools.video.dashscope_video import DashscopeVideo
 SOURCE_MIN_CHARS = 40
 SOURCE_MAX_CHARS = 20_000
 TITLE_MAX_CHARS = 120
-CLIP_SECONDS = 14
+CLIP_SECONDS = 5
+CLIP_BEAT_RANGES = ((0, 2), (2, 4), (4, 5))
 IMAGE_NEGATIVE_PROMPT = "禁止可读文字、字幕、标签、标志、水印、分屏、拼贴、几何变形和重复主体。"
 ALLOWED_BEATS = {
     "hook", "setup", "tension", "turning_point", "development", "payoff", "reflection",
@@ -203,6 +204,14 @@ def _require_string(value: Any, field: str) -> str:
     if not text:
         raise LessonStudioValidationError(f"分镜规划缺少字段：{field}")
     return text
+
+
+def _strip_action_timecode(value: str) -> str:
+    return re.sub(
+        r"^\s*\d+(?:\.\d+)?\s*[–—-]\s*\d+(?:\.\d+)?\s*秒\s*[:：]?\s*",
+        "",
+        value,
+    ).strip() or value
 
 
 def _require_simplified_chinese(value: Any, field: str) -> None:
@@ -385,7 +394,10 @@ def _build_scene_plan(raw: dict[str, Any], source_text: str) -> dict[str, Any]:
         actions = source_scene.get("temporal_actions")
         if not isinstance(actions, list) or len(actions) != 3:
             raise LessonStudioValidationError("每个镜头必须包含三个连续动作节拍。")
-        actions = [_require_string(action, "temporal_actions[]") for action in actions]
+        actions = [
+            _strip_action_timecode(_require_string(action, "temporal_actions[]"))
+            for action in actions
+        ]
         human_presence = str(source_scene.get("human_presence") or "none")
         human_action = str(source_scene.get("human_action") or "").strip()
         description = _require_string(source_scene.get("description"), "description")
@@ -410,9 +422,12 @@ def _build_scene_plan(raw: dict[str, Any], source_text: str) -> dict[str, Any]:
             "subject_motion": subject_motion,
             "camera_motion": _require_string(source_scene.get("camera_motion"), "camera_motion"),
             "temporal_beats": [
-                {"start_seconds": 0, "end_seconds": 5, "action": actions[0]},
-                {"start_seconds": 5, "end_seconds": 10, "action": actions[1]},
-                {"start_seconds": 10, "end_seconds": 14, "action": actions[2]},
+                {
+                    "start_seconds": beat_start,
+                    "end_seconds": beat_end,
+                    "action": action,
+                }
+                for (beat_start, beat_end), action in zip(CLIP_BEAT_RANGES, actions)
             ],
             "continuity_refs": ["carrier-main"],
             "caption_safe_area": "画面下方 30% 保持安静且具有自然纹理，为双语字幕留出安全区。",
