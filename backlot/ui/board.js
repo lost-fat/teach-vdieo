@@ -299,6 +299,7 @@ function promptBlock(label, text, extra = "") {
 
 function openShotPromptModal(s, card, asset) {
   const videoPrompt = card.video_prompt || {};
+  const imagePrompt = (asset && asset.prompt) || card.image_prompt_preview || "";
   const beats = Array.isArray(videoPrompt.temporal_beats) ? videoPrompt.temporal_beats : [];
   const refs = Array.isArray(videoPrompt.continuity_refs) ? videoPrompt.continuity_refs : [];
   const sourceLabel = videoPrompt.source === "asset_manifest"
@@ -325,14 +326,18 @@ function openShotPromptModal(s, card, asset) {
       asset && asset.exists && asset.type === "image"
         ? el("div", { class: "prompt-preview" },
           el("img", { src: thumbURL(s.project_id, asset.path, 960), alt: `Selected image for ${sceneLabel(card.id)}` }))
-        : null,
+        : imagePrompt
+          ? el("div", { class: "prompt-preview planned" },
+            el("span", {}, "PLANNED FIRST FRAME · IMAGE NOT GENERATED"),
+            el("p", {}, card.description || imagePrompt))
+          : null,
       card.story_contribution
         ? el("div", { class: "prompt-story" },
           el("span", {}, "STORY CONTRIBUTION"),
           card.story_contribution)
         : null,
       el("div", { class: "prompt-grid" },
-        promptBlock("IMAGE PROMPT", asset && asset.prompt),
+        promptBlock("IMAGE PROMPT", imagePrompt),
         promptBlock("VIDEO PROMPT", videoPrompt.prompt, "video-prompt"),
         promptBlock("NEGATIVE PROMPT", videoPrompt.negative_prompt)),
       beats.length ? el("section", { class: "prompt-beats" },
@@ -558,6 +563,23 @@ function sceneCard(s, card) {
       el("div", { class: "spec-in" },
         el("div", { class: "spec-desc" }, card.description || ""),
         el("div", { class: "spec-shot" }, [card.framing, card.movement].filter(Boolean).join(" · ").slice(0, 70))));
+  }
+
+  // Text-only planning runs have no raster asset yet, but their first-frame
+  // and motion prompts must still be inspectable before any API spend.
+  if (!card.visual && (card.image_prompt_preview || card.video_prompt)) {
+    thumb.classList.add("promptable", "prompt-only");
+    thumb.setAttribute("role", "button");
+    thumb.setAttribute("tabindex", "0");
+    thumb.setAttribute("title", "View planned first-frame and video prompts");
+    thumb.addEventListener("click", () => openShotPromptModal(s, card, null));
+    thumb.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openShotPromptModal(s, card, null);
+      }
+    });
+    thumb.append(el("span", { class: "prompt-hint" }, "VIEW PLANNED PROMPTS"));
   }
   wrap.append(thumb);
 

@@ -646,6 +646,7 @@ aside .panel:nth-of-type(1) { animation-delay: .32s } aside .panel:nth-of-type(2
 }
 .thumb:hover .play { opacity: 1; }
 .thumb.approved { border-color: rgba(79,194,131,.35); }
+.thumb.promptable { cursor: pointer; }
 .thumb.promptable:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
 .thumb .prompt-hint {
   position: absolute; right: 7px; top: 7px; opacity: 0; transform: translateY(-2px);
@@ -655,6 +656,7 @@ aside .panel:nth-of-type(1) { animation-delay: .32s } aside .panel:nth-of-type(2
 }
 .thumb.promptable:hover .prompt-hint,
 .thumb.promptable:focus-visible .prompt-hint { opacity: 1; transform: translateY(0); }
+.thumb.prompt-only .prompt-hint { opacity: 1; transform: translateY(0); color: var(--amber); }
 
 /* generating shimmer */
 .thumb.generating { border-color: rgba(240,168,60,.45); }
@@ -773,6 +775,20 @@ aside .panel:nth-of-type(1) { animation-delay: .32s } aside .panel:nth-of-type(2
 }
 .prompt-preview { border-radius: 9px; overflow: hidden; border: 1px solid var(--border); background: var(--media-bg); }
 .prompt-preview img { display: block; width: 100%; max-height: 420px; object-fit: contain; }
+.prompt-preview.planned {
+  min-height: 150px; padding: 22px; display: flex; flex-direction: column;
+  justify-content: center; gap: 10px; background:
+    radial-gradient(circle at 15% 20%, rgba(240,168,60,.10), transparent 40%),
+    var(--surface-2);
+}
+.prompt-preview.planned span {
+  font-family: var(--mono); font-size: calc(9px * var(--fs-scale));
+  letter-spacing: .1em; color: var(--amber);
+}
+.prompt-preview.planned p {
+  color: var(--text-2); font-size: calc(13px * var(--fs-scale));
+  line-height: 1.55; max-width: 70ch;
+}
 .prompt-story {
   margin-top: 14px; padding: 11px 13px; border-left: 2px solid var(--amber);
   background: var(--amber-dim); color: var(--text-2); font-size: calc(12px * var(--fs-scale)); line-height: 1.5;

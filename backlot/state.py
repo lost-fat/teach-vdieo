@@ -229,6 +229,7 @@ ARTIFACT_FILES = {
     "final_review": "final_review.json",
     "publish_log": "publish_log.json",
     "decision_log": "decision_log.json",
+    "compiled_shot_prompts": "compiled_shot_prompts.json",
 }
 
 
@@ -456,6 +457,7 @@ def _build_storyboard(
     sections = (artifacts.get("script") or {}).get("sections") or []
     manifest_assets = (artifacts.get("asset_manifest") or {}).get("assets") or []
     continuity_bible = scene_plan.get("continuity_bible") or {}
+    prompt_previews = (artifacts.get("compiled_shot_prompts") or {}).get("shots") or []
 
     def scene_key(value: Any) -> str:
         # 0 is a legitimate scene id — only None/absent collapses to "".
@@ -467,6 +469,12 @@ def _build_storyboard(
             continue
         entry = _asset_entry(project_dir, asset)
         assets_by_scene.setdefault(scene_key(entry.get("scene_id")), []).append(entry)
+
+    prompts_by_scene = {
+        scene_key(preview.get("scene_id")): preview
+        for preview in prompt_previews
+        if isinstance(preview, dict) and preview.get("scene_id") is not None
+    }
 
     # A scene is "generating" if its most recent top-level event is an
     # unfinished start. Nested (depth>0) provider events inside a selector
@@ -487,6 +495,7 @@ def _build_storyboard(
         if not isinstance(scene, dict):
             continue
         sid = scene_key(scene.get("id"))
+        prompt_preview = prompts_by_scene.get(sid) or {}
         section = _find_script_section(scene, sections)
         scene_assets = assets_by_scene.get(sid, [])
         visuals = [a for a in scene_assets if a["type"] in ("image", "video", "diagram", "animation")]
@@ -529,6 +538,7 @@ def _build_storyboard(
             "required_assets": scene.get("required_assets") or [],
             "visual": active_visual,
             "takes": renderable,
+            "image_prompt_preview": prompt_preview.get("image_prompt_preview"),
             "video_prompt": _scene_video_prompt(scene, scene_assets, continuity_bible),
             "audio": audio,
             "generating": generating.get(sid) is not None,
