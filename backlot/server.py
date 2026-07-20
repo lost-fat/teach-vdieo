@@ -219,6 +219,15 @@ def create_app() -> FastAPI:
                 "image": "qwen-image-2.0-pro",
                 "video": "wan2.6-i2v-flash",
             },
+            "video_output": {
+                "duration_min_seconds": 2,
+                "duration_max_seconds": 15,
+                "duration_default_seconds": 5,
+                "planned_scene_seconds": 14,
+                "duration_step_seconds": 1,
+                "resolutions": ["720P", "1080P"],
+                "fps": 30,
+            },
             "free_tier_only": True,
             "paid_spend_cap_usd": 0,
         }

@@ -37,9 +37,15 @@ function setBusy(button, busy, label) {
 async function loadConfig() {
   const config = await getJSON("/api/lesson-studio/config");
   const badge = document.getElementById("providerStatus");
-  badge.textContent = config.provider_ready ? "百炼云 · READY" : "百炼云 Key 未载入";
+  badge.textContent = config.provider_ready ? "百炼云 · 已就绪" : "百炼云 Key 未载入";
   badge.classList.toggle("ready", config.provider_ready);
   badge.classList.toggle("blocked", !config.provider_ready);
+  const videoOutput = config.video_output || {};
+  const duration = document.getElementById("videoDuration");
+  if (duration && videoOutput.duration_min_seconds && videoOutput.duration_max_seconds) {
+    duration.textContent = `视频 · ${config.models.video} · 每镜 ${videoOutput.duration_min_seconds}–${videoOutput.duration_max_seconds} 秒`;
+    duration.title = `默认 ${videoOutput.duration_default_seconds} 秒，当前分镜规划 ${videoOutput.planned_scene_seconds} 秒，${videoOutput.resolutions.join(" / ")}，${videoOutput.fps} fps`;
+  }
 }
 
 function updateCharCount() {
@@ -54,12 +60,26 @@ function setProjectUrl(projectId) {
 }
 
 const STAGES = [
-  ["source", "课文输入"],
-  ["storyboard", "故事与分镜"],
-  ["images", "首帧审图"],
-  ["video", "镜头视频"],
-  ["compose", "字幕与合成"],
+  ["source", "课文", "课文输入"],
+  ["storyboard", "分镜", "故事与分镜"],
+  ["images", "首帧", "首帧审图"],
+  ["video", "视频", "镜头视频"],
+  ["compose", "合成", "字幕与合成"],
 ];
+
+const STORY_BEATS = new Map([
+  ["hook", "开场钩子"],
+  ["setup", "背景铺垫"],
+  ["tension", "矛盾升级"],
+  ["turning_point", "转折"],
+  ["development", "发展"],
+  ["payoff", "高潮回报"],
+  ["reflection", "收束回望"],
+]);
+
+function storyBeatLabel(value) {
+  return STORY_BEATS.get(value) || "镜头";
+}
 
 function stageIndex(workflow) {
   const stage = workflow.stage || "source_ready";
@@ -74,10 +94,10 @@ function renderRail(workflow) {
   const rail = document.getElementById("stageRail");
   rail.innerHTML = "";
   const active = stageIndex(workflow);
-  STAGES.forEach(([id, label], index) => {
+  STAGES.forEach(([id, name, label], index) => {
     const status = index < active ? "done" : index === active ? "active" : "";
     rail.append(el("li", { class: status },
-      el("b", {}, `${String(index + 1).padStart(2, "0")} · ${id.toUpperCase()}`),
+      el("b", {}, `${String(index + 1).padStart(2, "0")} · ${name}`),
       el("span", {}, label)));
   });
 }
@@ -101,17 +121,17 @@ function openPrompts(card) {
   promptDialogBody.innerHTML = "";
   promptDialogBody.append(
     el("header", { class: "dialog-head" },
-      el("p", { class: "studio-eyebrow" }, `${card.id} · ${card.story_beat || "scene"}`),
+      el("p", { class: "studio-eyebrow" }, `${card.id} · ${storyBeatLabel(card.story_beat)}`),
       el("h2", {}, card.description || card.id)),
-    card.story_contribution ? promptBlock("STORY CONTRIBUTION", card.story_contribution) : null,
-    promptBlock("IMAGE PROMPT", (card.visual && card.visual.prompt) || card.image_prompt_preview),
-    promptBlock("VIDEO PROMPT", video.prompt),
-    promptBlock("NEGATIVE PROMPT", video.negative_prompt),
+    card.story_contribution ? promptBlock("本镜头的叙事作用", card.story_contribution) : null,
+    promptBlock("图片生成提示词", (card.visual && card.visual.prompt) || card.image_prompt_preview),
+    promptBlock("视频生成提示词", video.prompt),
+    promptBlock("负面提示词", video.negative_prompt),
     beats.length ? el("section", { class: "dialog-block" },
-      el("h3", {}, "TEMPORAL BEATS"),
+      el("h3", {}, "时间动作节拍"),
       el("div", { class: "dialog-beats" }, beats.map((beat) =>
         el("div", { class: "dialog-beat" },
-          el("span", {}, `${beat.start_seconds}–${beat.end_seconds}s`),
+          el("span", {}, `${beat.start_seconds}–${beat.end_seconds} 秒`),
           el("p", {}, beat.action || ""))))) : null,
   );
   promptDialog.showModal();
@@ -122,15 +142,15 @@ function sceneCard(card, index, providerReady) {
   if (card.visual && card.visual.exists && card.visual.type === "image") {
     media.append(el("img", {
       src: thumbURL(activeProject, card.visual.path, 640),
-      alt: `${card.id} generated first frame`,
+      alt: `${card.id} 已生成的首帧`,
       loading: "lazy",
     }));
   } else {
     media.append(el("div", { class: "shot-placeholder" }, card.description || "等待分镜画面"));
   }
   media.append(
-    el("span", { class: "shot-number" }, `SC ${String(index + 1).padStart(2, "0")}`),
-    el("span", { class: "shot-model" }, card.visual ? "GENERATED" : "PLANNED FRAME"),
+    el("span", { class: "shot-number" }, `镜头 ${String(index + 1).padStart(2, "0")}`),
+    el("span", { class: "shot-model" }, card.visual ? "已生成" : "计划首帧"),
   );
 
   const generate = el("button", {
@@ -158,8 +178,8 @@ function sceneCard(card, index, providerReady) {
     media,
     el("div", { class: "shot-body" },
       el("div", { class: "shot-meta" },
-        el("span", {}, card.story_beat || "scene"),
-        el("span", {}, `${Math.round(card.duration_seconds || 0)}s · ${card.takes.length || 0} takes`)),
+        el("span", {}, storyBeatLabel(card.story_beat)),
+        el("span", {}, `${Math.round(card.duration_seconds || 0)} 秒 · ${card.takes.length || 0} 个版本`)),
       el("h4", {}, card.description || card.id),
       card.story_contribution ? el("p", { class: "shot-contribution" }, card.story_contribution) : null,
       el("div", { class: "shot-actions" },
@@ -194,7 +214,7 @@ function renderProject(data) {
     summary.hidden = false;
     summary.innerHTML = "";
     summary.append(
-      el("h3", {}, "VISUAL STORY"),
+      el("h3", {}, "视觉故事"),
       el("div", {},
         el("p", {}, arc.theme || ""),
         el("p", { class: "shot-contribution" }, arc.visual_premise || "")));
