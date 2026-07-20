@@ -139,7 +139,6 @@ function promptBlock(label, text) {
 
 function openPrompts(card) {
   const video = card.video_prompt || {};
-  const image = latestTake(card, "image");
   const beats = Array.isArray(video.temporal_beats) ? video.temporal_beats : [];
   promptDialogBody.innerHTML = "";
   promptDialogBody.append(
@@ -147,7 +146,7 @@ function openPrompts(card) {
       el("p", { class: "studio-eyebrow" }, `${card.id} · ${storyBeatLabel(card.story_beat)}`),
       el("h2", {}, card.description || card.id)),
     card.story_contribution ? promptBlock("本镜头的叙事作用", card.story_contribution) : null,
-    promptBlock("图片生成提示词", (image && image.prompt) || card.image_prompt_preview),
+    promptBlock("图片生成提示词", card.image_prompt_preview),
     promptBlock("视频生成提示词", video.prompt),
     promptBlock("负面提示词", video.negative_prompt),
     beats.length ? el("section", { class: "dialog-block" },

@@ -20,6 +20,7 @@ from backlot.lesson_studio import (
     _validate_planner_json,
     advance_lesson_stage,
     generate_lesson_scene_video,
+    reconcile_lesson_assets,
 )
 
 
@@ -347,6 +348,15 @@ def test_people_relevant_article_cannot_plan_every_scene_without_people():
         _validate_planner_json(raw, source)
 
 
+def test_planner_rejects_internal_cut_language_in_a_continuous_scene():
+    source, raw = _planner_fixture()
+    raw["scenes"][1]["description"] = "分屏式构图表现新旧交通对比。"
+    raw["scenes"][1]["temporal_actions"][2] = "镜头切回站台上的人物。"
+
+    with pytest.raises(LessonStudioValidationError, match="连续单镜头"):
+        _validate_planner_json(raw, source)
+
+
 def test_human_action_is_compiled_into_image_and_video_prompts():
     source, raw = _planner_fixture()
 
@@ -383,6 +393,41 @@ def test_parallel_asset_commits_merge_instead_of_overwriting(tmp_path):
         "sc_1", "sc_2", "sc_3", "sc_4",
     }
     assert manifest["total_cost_usd"] == 0.08
+
+
+def test_reconcile_restores_successful_image_file_missing_from_manifest(tmp_path):
+    project = tmp_path / "lesson"
+    artifacts = project / "artifacts"
+    images = project / "assets" / "images"
+    artifacts.mkdir(parents=True)
+    images.mkdir(parents=True)
+    (images / "sc_2-take-1.png").write_bytes(b"generated image")
+    (artifacts / "asset_manifest.json").write_text(json.dumps({
+        "version": "1.0", "assets": [],
+    }))
+    (artifacts / "lesson_source.json").write_text(json.dumps({
+        "source_sha256": "source-hash",
+    }))
+    (artifacts / "scene_plan.json").write_text(json.dumps({
+        "version": "1.0",
+        "scenes": [{"id": "sc_2", "video_prompt_spec": {}}],
+    }))
+    (artifacts / "compiled_shot_prompts.json").write_text(json.dumps({
+        "version": "1.0",
+        "shots": [{
+            "scene_id": "sc_2",
+            "image_prompt_preview": "肯尼亚乘客在站台上自然走向列车。",
+            "video_prompt": "生成一个连续镜头。",
+            "negative_video_prompt": "禁止硬切。",
+        }],
+    }))
+
+    result = reconcile_lesson_assets(project)
+    manifest = json.loads((artifacts / "asset_manifest.json").read_text())
+
+    assert result == {"images_recovered": 1, "videos_recovered": 0}
+    assert manifest["assets"][0]["scene_id"] == "sc_2"
+    assert manifest["assets"][0]["prompt"].startswith("肯尼亚乘客")
 
 
 def test_stage_advance_requires_complete_assets(tmp_path):

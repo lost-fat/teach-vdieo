@@ -449,6 +449,8 @@ class TestStoryboardVisualSelection:
             "Cinematic first frame of the waiting red-corner crate."
         )
         assert card["video_prompt"]["source"] == "scene_plan_preview"
+        assert card["video_prompt"]["prompt"] == "Precompiled motion prompt."
+        assert card["video_prompt"]["negative_prompt"] == "text"
 
     def test_recorded_video_prompt_overrides_the_scene_preview(self, projects_root):
         scene = {

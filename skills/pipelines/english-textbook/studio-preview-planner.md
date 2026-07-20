@@ -13,6 +13,13 @@ Requirements:
   source article exactly, in order, with no omission, rewriting, or overlap.
 - Give the story a grounded recurring carrier. Its changing state must carry
   the article from opening through turning point to payoff.
+- Decide human presence from the article instead of banning or forcing people.
+  If the source mentions passengers, workers, residents, families, customers,
+  or other people, at least one scene must show geographically and historically
+  appropriate people doing a natural consequential action. An object carrier
+  may connect the story, but it must not erase human agency.
+- Use `human_presence: none` only when people are genuinely unnecessary. Avoid
+  posed portraits and talking heads; prefer observed actions in context.
 - Use at least three different `story_beat` values and a recognizable opening,
   turning point, and closing state.
 - The image description is a first frame, not a list of spoken nouns.
@@ -72,7 +79,9 @@ JSON shape:
       ],
       "foreground_event": "foreground parallax event",
       "visual_payoff": "final visible payoff",
-      "match_action": "continuity bridge from the previous scene"
+      "match_action": "continuity bridge from the previous scene",
+      "human_presence": "none | background | supporting | primary",
+      "human_action": "简体中文的人物自然行动；human_presence 为 none 时使用空字符串"
     }
   ]
 }

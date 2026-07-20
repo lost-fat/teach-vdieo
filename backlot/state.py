@@ -396,6 +396,7 @@ def _scene_video_prompt(
     scene: dict[str, Any],
     scene_assets: list[dict[str, Any]],
     continuity_bible: dict[str, Any],
+    prompt_preview: Optional[dict[str, Any]] = None,
 ) -> Optional[dict[str, Any]]:
     """Return the exact submitted video prompt, or a safe preflight preview.
 
@@ -430,6 +431,16 @@ def _scene_video_prompt(
 
     if not isinstance(spec, dict):
         return None
+    if isinstance(prompt_preview, dict) and prompt_preview.get("video_prompt"):
+        return {
+            "prompt": str(prompt_preview["video_prompt"]),
+            "negative_prompt": str(prompt_preview.get("negative_video_prompt") or ""),
+            "source": str(prompt_preview.get("source") or "scene_plan_preview"),
+            "provider": None,
+            "model": None,
+            "temporal_beats": prompt_preview.get("temporal_beats") or spec.get("temporal_beats") or [],
+            "continuity_refs": spec.get("continuity_refs") or [],
+        }
     try:
         compiled = build_video_prompt(scene, continuity_bible, provider="wan-i2v")
     except (KeyError, TypeError, ValueError):
@@ -539,7 +550,9 @@ def _build_storyboard(
             "visual": active_visual,
             "takes": renderable,
             "image_prompt_preview": prompt_preview.get("image_prompt_preview"),
-            "video_prompt": _scene_video_prompt(scene, scene_assets, continuity_bible),
+            "video_prompt": _scene_video_prompt(
+                scene, scene_assets, continuity_bible, prompt_preview
+            ),
             "audio": audio,
             "generating": generating.get(sid) is not None,
             "generating_tool": (generating.get(sid) or {}).get("tool"),

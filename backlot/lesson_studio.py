@@ -12,6 +12,7 @@ import json
 import os
 import re
 import secrets
+import threading
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,6 +40,22 @@ ALLOWED_VISUAL_ROLES = {
 }
 ALLOWED_VISUAL_MODES = {"direct_evidence", "interpretive", "metaphor", "bridge", "payoff"}
 ALLOWED_CARRIER_KINDS = {"person", "object", "place", "process", "question", "motif", "ensemble"}
+ALLOWED_HUMAN_PRESENCE = {"none", "background", "supporting", "primary"}
+_CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+_HUMAN_SOURCE_RE = re.compile(
+    r"\b(?:people|person|persons|passenger|passengers|worker|workers|"
+    r"businessman|businesswoman|businesspeople|manager|managers|family|families|"
+    r"child|children|student|students|teacher|teachers|farmer|farmers|resident|"
+    r"residents|customer|customers|citizen|citizens|kenyan|kenyans|friend|friends)\b",
+    re.IGNORECASE,
+)
+_INTERNAL_EDIT_RE = re.compile(r"分屏|硬切|切回|切换到|切至|切到|淡入|淡出|蒙太奇")
+_NEGATED_EDIT_RE = re.compile(
+    r"(?:避免|禁止|不要|不得|不使用|没有|无)[^，。；]{0,24}"
+    r"(?:分屏|硬切|剪辑|切回|切换|淡入|淡出|蒙太奇)"
+)
+_PROJECT_WRITE_LOCKS: dict[str, threading.RLock] = {}
+_PROJECT_WRITE_LOCKS_GUARD = threading.Lock()
 
 
 class LessonStudioError(RuntimeError):
@@ -66,6 +83,12 @@ def _read_json(path: Path, default: dict[str, Any] | None = None) -> dict[str, A
     except (OSError, json.JSONDecodeError):
         return deepcopy(default or {})
     return value if isinstance(value, dict) else deepcopy(default or {})
+
+
+def _project_write_lock(project_dir: Path) -> threading.RLock:
+    key = str(project_dir.resolve())
+    with _PROJECT_WRITE_LOCKS_GUARD:
+        return _PROJECT_WRITE_LOCKS.setdefault(key, threading.RLock())
 
 
 def _slugify(value: str) -> str:
@@ -154,11 +177,12 @@ def read_studio_state(project_dir: Path) -> dict[str, Any]:
 
 
 def _update_studio_state(project_dir: Path, **updates: Any) -> dict[str, Any]:
-    state = read_studio_state(project_dir)
-    state.update(updates)
-    state["updated_at"] = datetime.now(timezone.utc).isoformat()
-    _atomic_write_json(project_dir / "studio_state.json", state)
-    return state
+    with _project_write_lock(project_dir):
+        state = read_studio_state(project_dir)
+        state.update(updates)
+        state["updated_at"] = datetime.now(timezone.utc).isoformat()
+        _atomic_write_json(project_dir / "studio_state.json", state)
+        return state
 
 
 def _planner_prompt(source_text: str) -> str:
@@ -181,6 +205,84 @@ def _require_string(value: Any, field: str) -> str:
     return text
 
 
+def _require_simplified_chinese(value: Any, field: str) -> None:
+    text = _require_string(value, field)
+    if not _CJK_RE.search(text):
+        raise LessonStudioValidationError(
+            f"分镜字段 {field} 必须使用简体中文（专名可保留原文）。"
+        )
+
+
+def _source_requires_people(source_text: str) -> bool:
+    return bool(_HUMAN_SOURCE_RE.search(source_text))
+
+
+def _validate_chinese_generation_fields(raw: dict[str, Any], scenes: list[dict[str, Any]]) -> None:
+    for field in (
+        "theme", "visual_premise", "opening_state", "turning_point",
+        "closing_state", "recurring_motif",
+    ):
+        _require_simplified_chinese(raw.get(field), field)
+
+    carrier = raw.get("carrier") if isinstance(raw.get("carrier"), dict) else {}
+    for field in ("name", "description"):
+        _require_simplified_chinese(carrier.get(field), f"carrier.{field}")
+    traits = carrier.get("traits") if isinstance(carrier.get("traits"), list) else []
+    if not traits:
+        raise LessonStudioValidationError("分镜规划缺少字段：carrier.traits")
+    for index, value in enumerate(traits):
+        _require_simplified_chinese(value, f"carrier.traits[{index}]")
+
+    style = raw.get("style") if isinstance(raw.get("style"), dict) else {}
+    palette = style.get("palette") if isinstance(style.get("palette"), list) else []
+    if not palette:
+        raise LessonStudioValidationError("分镜规划缺少字段：style.palette")
+    for index, value in enumerate(palette):
+        _require_simplified_chinese(value, f"style.palette[{index}]")
+    for field in ("lighting", "texture"):
+        _require_simplified_chinese(style.get(field), f"style.{field}")
+
+    required_scene_fields = (
+        "chapter_objective", "story_contribution", "description", "state_from",
+        "state_to", "subject_motion", "camera_motion",
+    )
+    optional_scene_fields = ("foreground_event", "visual_payoff", "match_action")
+    for scene_index, scene in enumerate(scenes):
+        for field in required_scene_fields:
+            _require_simplified_chinese(scene.get(field), f"scenes[{scene_index}].{field}")
+        actions = scene.get("temporal_actions")
+        if not isinstance(actions, list) or len(actions) != 3:
+            raise LessonStudioValidationError("每个镜头必须包含三个连续动作节拍。")
+        for action_index, action in enumerate(actions):
+            _require_simplified_chinese(
+                action, f"scenes[{scene_index}].temporal_actions[{action_index}]"
+            )
+        for field in optional_scene_fields:
+            if scene.get(field):
+                _require_simplified_chinese(scene[field], f"scenes[{scene_index}].{field}")
+
+        presence = str(scene.get("human_presence") or "")
+        if presence not in ALLOWED_HUMAN_PRESENCE:
+            raise LessonStudioValidationError(
+                "每个镜头必须设置 human_presence：none、background、supporting 或 primary。"
+            )
+        if presence != "none":
+            _require_simplified_chinese(
+                scene.get("human_action"), f"scenes[{scene_index}].human_action"
+            )
+        continuous_text = " ".join([
+            str(scene.get("description") or ""),
+            str(scene.get("subject_motion") or ""),
+            str(scene.get("camera_motion") or ""),
+            *(str(action) for action in scene.get("temporal_actions", [])),
+        ])
+        requested_edit_text = _NEGATED_EDIT_RE.sub("", continuous_text)
+        if _INTERNAL_EDIT_RE.search(requested_edit_text):
+            raise LessonStudioValidationError(
+                f"scenes[{scene_index}] 必须描述连续单镜头，不能包含分屏或镜头内剪切。"
+            )
+
+
 def _validate_planner_json(raw: dict[str, Any], source_text: str) -> list[dict[str, Any]]:
     scenes = raw.get("scenes")
     if not isinstance(scenes, list) or not 3 <= len(scenes) <= 12:
@@ -191,6 +293,14 @@ def _validate_planner_json(raw: dict[str, Any], source_text: str) -> list[dict[s
     beats = {_require_string(scene.get("story_beat"), "scenes[].story_beat") for scene in scenes}
     if not beats.issubset(ALLOWED_BEATS) or len(beats) < 3:
         raise LessonStudioValidationError("视觉故事必须至少包含三个有效叙事阶段。")
+    _validate_chinese_generation_fields(raw, scenes)
+    if _source_requires_people(source_text) and not any(
+        str(scene.get("human_presence")) != "none" for scene in scenes
+    ):
+        raise LessonStudioValidationError(
+            "课文包含乘客、职工、商人或家庭等人物，分镜不能全部无人；"
+            "请至少安排一个人物自然行动的镜头。"
+        )
     return scenes
 
 
@@ -276,6 +386,18 @@ def _build_scene_plan(raw: dict[str, Any], source_text: str) -> dict[str, Any]:
         if not isinstance(actions, list) or len(actions) != 3:
             raise LessonStudioValidationError("每个镜头必须包含三个连续动作节拍。")
         actions = [_require_string(action, "temporal_actions[]") for action in actions]
+        human_presence = str(source_scene.get("human_presence") or "none")
+        human_action = str(source_scene.get("human_action") or "").strip()
+        description = _require_string(source_scene.get("description"), "description")
+        subject_motion = _require_string(source_scene.get("subject_motion"), "subject_motion")
+        if human_presence != "none":
+            presence_label = {
+                "background": "自然背景人物",
+                "supporting": "参与叙事的配角",
+                "primary": "主要行动人物",
+            }[human_presence]
+            description = f"{description} 人物呈现：{presence_label}，{human_action}"
+            subject_motion = f"{subject_motion} 人物行动：{human_action}"
         narrative_units.append({
             "id": unit_id,
             "source_text": _require_string(source_scene.get("source_text"), "source_text"),
@@ -285,7 +407,7 @@ def _build_scene_plan(raw: dict[str, Any], source_text: str) -> dict[str, Any]:
         })
         spec: dict[str, Any] = {
             "single_shot": True,
-            "subject_motion": _require_string(source_scene.get("subject_motion"), "subject_motion"),
+            "subject_motion": subject_motion,
             "camera_motion": _require_string(source_scene.get("camera_motion"), "camera_motion"),
             "temporal_beats": [
                 {"start_seconds": 0, "end_seconds": 5, "action": actions[0]},
@@ -306,7 +428,7 @@ def _build_scene_plan(raw: dict[str, Any], source_text: str) -> dict[str, Any]:
         scene = {
             "id": scene_id,
             "type": "generated",
-            "description": _require_string(source_scene.get("description"), "description"),
+            "description": description,
             "start_seconds": start,
             "end_seconds": end,
             "narrative_unit_ids": [unit_id],
@@ -380,6 +502,7 @@ def _compile_prompt_cards(plan: dict[str, Any]) -> dict[str, Any]:
             video_parts.append(f"结尾视觉回报：{spec['visual_payoff']}")
         video_parts.extend([
             f"色彩：{'、'.join(style['palette'])}；光线：{style['lighting']}；质感：{style['texture']}。",
+            "若场景包含人物，人物必须自然参与行动，不摆拍、不凝视镜头，职业、服饰、年龄与当地地域和时代相符。",
             spec["caption_safe_area"],
         ])
         video_prompt = " ".join(video_parts)
@@ -393,6 +516,7 @@ def _compile_prompt_cards(plan: dict[str, Any]) -> dict[str, Any]:
             f"{carrier['canonical_name']}，稳定特征为{'、'.join(carrier['immutable_traits'])}。"
             f"配色：{'、'.join(style['palette'])}。光线：{style['lighting']}。"
             f"质感：{style['texture']}。地理自然、文化细节真实，16:9 构图。"
+            "若场景包含人物，人物必须自然参与行动，不摆拍、不凝视镜头，职业、服饰、年龄与当地地域和时代相符。"
             "画面下方 30% 保持视觉安静，为后续双语字幕留出安全区。"
             "禁止生成文字、标签、标志、字幕、带标签的地图或水印。"
         )
@@ -426,7 +550,10 @@ def plan_lesson_storyboard(project_dir: Path) -> dict[str, Any]:
     )
     result = DashscopeText().execute({
         "model": "qwen3.7-plus",
-        "system_prompt": "You are a documentary story director. Return only one valid JSON object.",
+        "system_prompt": (
+            "你是纪录片视觉故事导演。只返回一个有效 JSON 对象。"
+            "除 source_text 和规定的英文枚举值外，所有文本字段必须使用简体中文。"
+        ),
         "prompt": prompt,
         "temperature": 0.35,
         "max_tokens": 8192,
@@ -443,14 +570,16 @@ def plan_lesson_storyboard(project_dir: Path) -> dict[str, Any]:
         plan = _build_scene_plan(raw, source_text)
     except LessonStudioValidationError as first_error:
         repair_prompt = (
-            f"Your previous JSON failed validation: {first_error}. Return a corrected complete JSON "
-            "using the identical schema and exact source coverage.\n\n"
-            f"PREVIOUS_JSON:\n{json.dumps(raw, ensure_ascii=False)}\n\n"
-            f"SOURCE_ARTICLE:\n{source_text}"
+            f"上一个 JSON 未通过校验：{first_error}\n"
+            "请返回修正后的完整 JSON，保持课文原文区间精确且完整。"
+            "除 source_text 和规定的英文枚举值外，所有文本字段必须使用简体中文。"
+            "每个镜头必须补全 human_presence；不为 none 时必须提供中文 human_action。\n\n"
+            f"上一个 JSON：\n{json.dumps(raw, ensure_ascii=False)}\n\n"
+            f"英文课文原文：\n{source_text}"
         )
         repair = DashscopeText().execute({
             "model": "qwen3.7-plus",
-            "system_prompt": "Repair the storyboard. Return only one valid JSON object.",
+            "system_prompt": "修复分镜规划，只返回一个有效 JSON 对象。",
             "prompt": repair_prompt,
             "temperature": 0.15,
             "max_tokens": 8192,
@@ -509,6 +638,178 @@ def _completed_scene_ids(project_dir: Path, asset_type: str) -> set[str]:
         for asset in manifest.get("assets", [])
         if isinstance(asset, dict) and asset.get("type") == asset_type and asset.get("scene_id")
     }
+
+
+def _append_lesson_asset(project_dir: Path, asset: dict[str, Any]) -> dict[str, Any]:
+    """Merge one completed asset into the latest manifest atomically.
+
+    Image/video API calls may run in parallel for different scenes.  Only the
+    short manifest commit is serialized so a later completion cannot overwrite
+    an earlier completion with the stale manifest it read before the API call.
+    """
+    manifest_path = project_dir / "artifacts" / "asset_manifest.json"
+    with _project_write_lock(project_dir):
+        manifest = _read_json(
+            manifest_path,
+            {"version": "1.0", "assets": [], "total_cost_usd": 0},
+        )
+        assets = manifest.get("assets")
+        if not isinstance(assets, list):
+            assets = []
+            manifest["assets"] = assets
+        asset_id = str(asset.get("id") or "")
+        if not any(str(existing.get("id") or "") == asset_id for existing in assets):
+            assets.append(asset)
+        manifest["total_cost_usd"] = round(
+            sum(float(existing.get("cost_usd") or 0) for existing in assets), 4
+        )
+        manifest["metadata"] = {
+            **(manifest.get("metadata") or {}),
+            "free_tier_only": True,
+            "paid_spend_cap_usd": 0,
+            "cost_basis": "estimated_list_price_not_account_charge",
+            "fallback_used": False,
+        }
+        validate_artifact("asset_manifest", manifest)
+        _atomic_write_json(manifest_path, manifest)
+        return deepcopy(manifest)
+
+
+def _finish_lesson_asset(
+    project_dir: Path,
+    asset: dict[str, Any],
+    *,
+    asset_type: str,
+    stage: str,
+    message: str,
+) -> dict[str, Any]:
+    with _project_write_lock(project_dir):
+        manifest = _append_lesson_asset(project_dir, asset)
+        generated = sum(
+            1 for item in manifest["assets"] if item.get("type") == asset_type
+        )
+        counter = "images_generated" if asset_type == "image" else "videos_generated"
+        _update_studio_state(
+            project_dir,
+            stage=stage,
+            status="awaiting_human",
+            active_scene_id=None,
+            message=message,
+            **{counter: generated},
+        )
+        return manifest
+
+
+def reconcile_lesson_assets(project_dir: Path) -> dict[str, int]:
+    """Restore provider-success files omitted by an interrupted/stale commit."""
+    prompt_artifact = _read_json(project_dir / "artifacts" / "compiled_shot_prompts.json")
+    prompt_cards = {
+        str(item.get("scene_id")): item
+        for item in prompt_artifact.get("shots", [])
+        if isinstance(item, dict) and item.get("scene_id")
+    }
+    plan = _read_json(project_dir / "artifacts" / "scene_plan.json")
+    scenes = {
+        str(item.get("id")): item
+        for item in plan.get("scenes", [])
+        if isinstance(item, dict) and item.get("id")
+    }
+    source = _read_json(project_dir / "artifacts" / "lesson_source.json")
+    source_hash = str(source.get("source_sha256") or "")
+    manifest = _read_json(
+        project_dir / "artifacts" / "asset_manifest.json",
+        {"version": "1.0", "assets": []},
+    )
+    known_paths = {
+        str(item.get("path"))
+        for item in manifest.get("assets", [])
+        if isinstance(item, dict) and item.get("path")
+    }
+    recovered = {"images_recovered": 0, "videos_recovered": 0}
+    pattern = re.compile(r"^(?P<scene>[A-Za-z0-9_-]+)-take-(?P<take>\d+)\.(?P<ext>png|mp4)$")
+
+    candidates = [
+        *(project_dir / "assets" / "images").glob("*-take-*.png"),
+        *(project_dir / "assets" / "video").glob("*-take-*.mp4"),
+    ]
+    for path in sorted(candidates):
+        rel_path = path.relative_to(project_dir).as_posix()
+        if rel_path in known_paths:
+            continue
+        match = pattern.fullmatch(path.name)
+        if not match:
+            continue
+        scene_id = match.group("scene")
+        take = int(match.group("take"))
+        card = prompt_cards.get(scene_id)
+        scene = scenes.get(scene_id)
+        if not isinstance(card, dict) or not isinstance(scene, dict):
+            continue
+        is_image = match.group("ext") == "png"
+        seed_suffix = f"{scene_id}:{take}" if is_image else f"{scene_id}:video:{take}"
+        seed = int(
+            hashlib.sha256(f"{source_hash}:{seed_suffix}".encode()).hexdigest()[:8], 16
+        ) % 2_147_483_648
+        if is_image:
+            asset = {
+                "id": f"image-{scene_id}-take-{take}",
+                "type": "image",
+                "path": rel_path,
+                "source_tool": "dashscope_image",
+                "scene_id": scene_id,
+                "prompt": str(card.get("image_prompt_preview") or ""),
+                "negative_prompt": IMAGE_NEGATIVE_PROMPT,
+                "seed": seed,
+                "model": "qwen-image-2.0-pro",
+                "cost_usd": 0.02,
+                "resolution": "2688x1536",
+                "format": "png",
+                "subtype": "generated-first-frame",
+                "generation_summary": "从已成功落盘但未登记的北京百炼图片文件恢复。",
+                "provider": "dashscope",
+                "license": "AI-generated under the configured DashScope account terms",
+            }
+            recovered["images_recovered"] += 1
+        else:
+            duration = int(
+                round(float(scene.get("end_seconds", 0)) - float(scene.get("start_seconds", 0)))
+            )
+            asset = {
+                "id": f"video-{scene_id}-take-{take}",
+                "type": "video",
+                "path": rel_path,
+                "source_tool": "dashscope_video",
+                "scene_id": scene_id,
+                "prompt": str(card.get("video_prompt") or ""),
+                "negative_prompt": str(card.get("negative_video_prompt") or ""),
+                "seed": seed,
+                "model": "wan2.6-i2v-flash",
+                "cost_usd": 0,
+                "duration_seconds": duration,
+                "resolution": "1080P",
+                "format": "mp4",
+                "subtype": "generated-continuous-shot",
+                "generation_summary": "从已成功落盘但未登记的北京百炼视频文件恢复。",
+                "provider": "dashscope",
+                "license": "AI-generated under the configured DashScope account terms",
+            }
+            if isinstance(scene.get("video_prompt_spec"), dict):
+                asset["video_prompt_spec"] = scene["video_prompt_spec"]
+            recovered["videos_recovered"] += 1
+        manifest = _append_lesson_asset(project_dir, asset)
+        known_paths.add(rel_path)
+
+    if any(recovered.values()) and (project_dir / "studio_state.json").is_file():
+        _update_studio_state(
+            project_dir,
+            images_generated=sum(
+                1 for item in manifest.get("assets", []) if item.get("type") == "image"
+            ),
+            videos_generated=sum(
+                1 for item in manifest.get("assets", []) if item.get("type") == "video"
+            ),
+        )
+    return recovered
 
 
 def advance_lesson_stage(project_dir: Path) -> dict[str, Any]:
@@ -599,7 +900,7 @@ def generate_lesson_scene_image(project_dir: Path, scene_id: str) -> dict[str, A
 
     asset_id = f"image-{scene_id}-take-{take}"
     rel_path = output_path.relative_to(project_dir).as_posix()
-    manifest.setdefault("assets", []).append({
+    asset = {
         "id": asset_id,
         "type": "image",
         "path": rel_path,
@@ -613,29 +914,15 @@ def generate_lesson_scene_image(project_dir: Path, scene_id: str) -> dict[str, A
         "resolution": "2688x1536",
         "format": "png",
         "subtype": "generated-first-frame",
-        "generation_summary": "One user-triggered Beijing DashScope call; prompt extension, watermark, and provider fallback disabled.",
+        "generation_summary": "用户单次点击触发的北京百炼文生图；关闭提示词改写、水印和模型回退。",
         "provider": "dashscope",
         "license": "AI-generated under the configured DashScope account terms",
-    })
-    manifest["total_cost_usd"] = round(
-        sum(float(asset.get("cost_usd") or 0) for asset in manifest["assets"]), 4
-    )
-    manifest["metadata"] = {
-        **(manifest.get("metadata") or {}),
-        "free_tier_only": True,
-        "paid_spend_cap_usd": 0,
-        "cost_basis": "estimated_list_price_not_account_charge",
-        "fallback_used": False,
     }
-    validate_artifact("asset_manifest", manifest)
-    _atomic_write_json(manifest_path, manifest)
-    images_generated = sum(1 for asset in manifest["assets"] if asset.get("type") == "image")
-    _update_studio_state(
+    _finish_lesson_asset(
         project_dir,
+        asset,
+        asset_type="image",
         stage="images_in_review",
-        status="awaiting_human",
-        active_scene_id=None,
-        images_generated=images_generated,
         message="首帧已生成。可以继续生成其他镜头或重新生成当前镜头。",
     )
     return {"asset_id": asset_id, "scene_id": scene_id, "path": rel_path, "take": take}
@@ -724,7 +1011,7 @@ def generate_lesson_scene_video(project_dir: Path, scene_id: str) -> dict[str, A
 
     asset_id = f"video-{scene_id}-take-{take}"
     rel_path = output_path.relative_to(project_dir).as_posix()
-    manifest.setdefault("assets", []).append({
+    asset = {
         "id": asset_id,
         "type": "video",
         "path": rel_path,
@@ -743,26 +1030,12 @@ def generate_lesson_scene_video(project_dir: Path, scene_id: str) -> dict[str, A
         "generation_summary": "用户单次点击触发的北京百炼图生视频；关闭模型回退、原生音频、提示词改写和水印。",
         "provider": "dashscope",
         "license": "AI-generated under the configured DashScope account terms",
-    })
-    manifest["total_cost_usd"] = round(
-        sum(float(asset.get("cost_usd") or 0) for asset in manifest["assets"]), 4
-    )
-    manifest["metadata"] = {
-        **(manifest.get("metadata") or {}),
-        "free_tier_only": True,
-        "paid_spend_cap_usd": 0,
-        "cost_basis": "estimated_list_price_not_account_charge",
-        "fallback_used": False,
     }
-    validate_artifact("asset_manifest", manifest)
-    _atomic_write_json(manifest_path, manifest)
-    videos_generated = sum(1 for asset in manifest["assets"] if asset.get("type") == "video")
-    _update_studio_state(
+    _finish_lesson_asset(
         project_dir,
+        asset,
+        asset_type="video",
         stage="videos_in_review",
-        status="awaiting_human",
-        active_scene_id=None,
-        videos_generated=videos_generated,
         message="镜头视频已生成。可以继续生成其他镜头，或重新生成当前镜头。",
     )
     return {"asset_id": asset_id, "scene_id": scene_id, "path": rel_path, "take": take}
