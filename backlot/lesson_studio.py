@@ -51,9 +51,10 @@ _HUMAN_SOURCE_RE = re.compile(
     re.IGNORECASE,
 )
 _INTERNAL_EDIT_RE = re.compile(r"分屏|硬切|切回|切换到|切至|切到|淡入|淡出|蒙太奇")
-_NEGATED_EDIT_RE = re.compile(
-    r"(?:避免|禁止|不要|不得|不使用|没有|无)[^，。；]{0,24}"
-    r"(?:分屏|硬切|剪辑|切回|切换|淡入|淡出|蒙太奇)"
+_EDIT_NEGATION_PREFIX_RE = re.compile(
+    r"(?:避免|禁止|不要|不得|不应|不再|不直接展示|不展示|不使用|"
+    r"不采用|不出现|不包含|没有|无需|无须|无)"
+    r"(?:任何|真实|实际|镜头内|反射|画面|文字|的|\s)*$"
 )
 _PROJECT_WRITE_LOCKS: dict[str, threading.RLock] = {}
 _PROJECT_WRITE_LOCKS_GUARD = threading.Lock()
@@ -226,6 +227,19 @@ def _source_requires_people(source_text: str) -> bool:
     return bool(_HUMAN_SOURCE_RE.search(source_text))
 
 
+def _requests_internal_edit(value: str) -> bool:
+    for match in _INTERNAL_EDIT_RE.finditer(value):
+        clause_start = max(
+            value.rfind(separator, 0, match.start())
+            for separator in ("，", "。", "；", ",", ";")
+        )
+        prefix = value[clause_start + 1:match.start()]
+        if _EDIT_NEGATION_PREFIX_RE.search(prefix):
+            continue
+        return True
+    return False
+
+
 def _validate_chinese_generation_fields(raw: dict[str, Any], scenes: list[dict[str, Any]]) -> None:
     for field in (
         "theme", "visual_premise", "opening_state", "turning_point",
@@ -285,8 +299,7 @@ def _validate_chinese_generation_fields(raw: dict[str, Any], scenes: list[dict[s
             str(scene.get("camera_motion") or ""),
             *(str(action) for action in scene.get("temporal_actions", [])),
         ])
-        requested_edit_text = _NEGATED_EDIT_RE.sub("", continuous_text)
-        if _INTERNAL_EDIT_RE.search(requested_edit_text):
+        if _requests_internal_edit(continuous_text):
             raise LessonStudioValidationError(
                 f"scenes[{scene_index}] 必须描述连续单镜头，不能包含分屏或镜头内剪切。"
             )
@@ -604,7 +617,17 @@ def plan_lesson_storyboard(project_dir: Path) -> dict[str, Any]:
         if not isinstance(repaired_raw, dict):
             _update_studio_state(project_dir, stage="source_ready", status="error", message=str(first_error))
             raise LessonStudioProviderError(str(first_error))
-        plan = _build_scene_plan(repaired_raw, source_text)
+        try:
+            plan = _build_scene_plan(repaired_raw, source_text)
+        except LessonStudioValidationError as repaired_error:
+            _update_studio_state(
+                project_dir,
+                stage="source_ready",
+                status="error",
+                active_scene_id=None,
+                message=str(repaired_error),
+            )
+            raise
 
     prompts = _compile_prompt_cards(plan)
     _atomic_write_json(project_dir / "artifacts" / "scene_plan.json", plan)
