@@ -211,6 +211,17 @@ class TestBaseToolInstrumentation:
         assert "IMAGE PROMPT" in board_js
         assert "NEGATIVE PROMPT" in board_js
 
+    def test_prompt_only_scene_cards_can_open_the_prompt_inspector(self):
+        board_js = (
+            Path(__file__).resolve().parent.parent.parent
+            / "backlot"
+            / "ui"
+            / "board.js"
+        ).read_text(encoding="utf-8")
+
+        assert "card.image_prompt_preview" in board_js
+        assert "prompt-only" in board_js
+
     def test_execute_emits_error_event_and_reraises(self, tmp_path, monkeypatch):
         import lib.events as events_mod
         monkeypatch.setattr(events_mod, "PROJECTS_DIR", tmp_path)

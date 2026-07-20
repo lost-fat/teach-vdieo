@@ -411,6 +411,45 @@ class TestStoryboardVisualSelection:
         assert card["video_prompt"]["temporal_beats"][0]["action"] == "The lift becomes forward motion."
         assert card["story_contribution"] == "Turn waiting into movement."
 
+    def test_prompt_only_storyboard_card_exposes_first_frame_preview(self, projects_root):
+        scene = {
+            "id": "sc1",
+            "type": "generated",
+            "description": "A marked crate waits beside the railway.",
+            "start_seconds": 0,
+            "end_seconds": 5,
+            "video_prompt_spec": {
+                "single_shot": True,
+                "subject_motion": "Dust moves while the distant train approaches.",
+                "camera_motion": "A restrained lateral glide.",
+                "temporal_beats": [
+                    {"start_seconds": 0, "end_seconds": 5, "action": "Reveal the track."}
+                ],
+                "continuity_refs": [],
+                "negative_constraints": ["text"],
+            },
+        }
+        p = self._project_with_scenes(projects_root, [scene], [])
+        _write(p / "artifacts" / "compiled_shot_prompts.json", {
+            "version": "1.0",
+            "provider_preview": "wan-i2v",
+            "shots": [{
+                "scene_id": "sc1",
+                "image_prompt_preview": "Cinematic first frame of the waiting red-corner crate.",
+                "video_prompt": "Precompiled motion prompt.",
+                "negative_video_prompt": "text",
+                "submitted_to_media_api": False,
+            }],
+        })
+
+        card = self._card(p, "sc1")
+
+        assert card["visual"] is None
+        assert card["image_prompt_preview"] == (
+            "Cinematic first frame of the waiting red-corner crate."
+        )
+        assert card["video_prompt"]["source"] == "scene_plan_preview"
+
     def test_recorded_video_prompt_overrides_the_scene_preview(self, projects_root):
         scene = {
             "id": "sc1",
