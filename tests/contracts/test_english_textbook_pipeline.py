@@ -49,7 +49,7 @@ def _lesson_plan() -> dict:
         },
         "visual": {
             "style_playbook": "esl-cinematic-editorial",
-            "image_model": "qwen-image-2.0-pro",
+            "image_model": "flux2-klein-base-4b",
             "video_model": "wan2.6-i2v-flash",
         },
         "render": {
@@ -128,13 +128,16 @@ def test_manifest_has_audio_first_stage_order():
     ]
 
 
-def test_manifest_locks_confirmed_dashscope_api_contract():
+def test_manifest_locks_confirmed_mixed_provider_api_contract():
     api = load_pipeline("english-textbook")["metadata"]["api_contract"]
     assert api == {
-        "provider": "dashscope",
+        "provider": "mixed",
         "region": "cn-beijing",
         "text_model": "qwen3.7-plus",
-        "image_model": "qwen-image-2.0-pro",
+        "image_provider": "openai_compatible_local",
+        "image_model": "flux2-klein-base-4b",
+        "image_size": "1024x1024",
+        "image_quality": "medium",
         "video_model": "wan2.6-i2v-flash",
         "tts_model": "qwen3-tts-vd-2026-01-26",
         "asr_model": "qwen3-asr-flash-filetrans",
@@ -150,7 +153,7 @@ def test_manifest_exposes_all_required_tools():
         "dashscope_text",
         "dashscope_tts",
         "dashscope_asr",
-        "dashscope_image",
+        "local_openai_image",
         "dashscope_video",
         "subtitle_gen",
         "video_compose",

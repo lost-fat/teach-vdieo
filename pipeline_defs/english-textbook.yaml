@@ -44,10 +44,13 @@ metadata:
   default_mode: article
   source_policy: verbatim
   api_contract:
-    provider: dashscope
+    provider: mixed
     region: cn-beijing
     text_model: qwen3.7-plus
-    image_model: qwen-image-2.0-pro
+    image_provider: openai_compatible_local
+    image_model: flux2-klein-base-4b
+    image_size: 1024x1024
+    image_quality: medium
     video_model: wan2.6-i2v-flash
     tts_model: qwen3-tts-vd-2026-01-26
     asr_model: qwen3-asr-flash-filetrans
@@ -144,12 +147,12 @@ stages:
     required_artifacts_in: [scene_plan, narration_timeline]
     optional_artifacts_in: [lesson_source, lesson_plan, script]
     produces: [asset_manifest]
-    required_tools: [dashscope_image, dashscope_video]
-    tools_available: [dashscope_image, dashscope_video]
+    required_tools: [local_openai_image, dashscope_video]
+    tools_available: [local_openai_image, dashscope_video]
     checkpoint_required: true
     human_approval_default: true
     review_focus:
-      - Requests use only locked DashScope models and free quota
+      - Requests use only the locked local image model and DashScope video model
       - Visual identity and historical details remain stable
       - Wan output is real motion with generated audio disabled
     success_criteria:

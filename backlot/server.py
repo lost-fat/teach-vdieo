@@ -21,6 +21,11 @@ from fastapi.staticfiles import StaticFiles
 
 from backlot.lesson_studio import (
     CLIP_SECONDS,
+    IMAGE_MODEL,
+    IMAGE_QUALITY,
+    IMAGE_SIZE,
+    TEXT_MODEL,
+    VIDEO_MODEL,
     LessonStudioProviderError,
     LessonStudioValidationError,
     advance_lesson_stage,
@@ -215,13 +220,20 @@ def create_app() -> FastAPI:
 
     @app.get("/api/lesson-studio/config")
     async def lesson_studio_config() -> dict:
+        provider_status = {
+            "text": bool(_os.environ.get("DASHSCOPE_API_KEY")),
+            "image": bool(_os.environ.get("LOCAL_IMAGE_API_KEY")),
+            "video": bool(_os.environ.get("DASHSCOPE_API_KEY")),
+        }
         return {
-            "provider_ready": bool(_os.environ.get("DASHSCOPE_API_KEY")),
+            "provider_ready": all(provider_status.values()),
+            "provider_status": provider_status,
             "models": {
-                "text": "qwen3.7-plus",
-                "image": "qwen-image-2.0-pro",
-                "video": "wan2.6-i2v-flash",
+                "text": TEXT_MODEL,
+                "image": IMAGE_MODEL,
+                "video": VIDEO_MODEL,
             },
+            "image_output": {"size": IMAGE_SIZE, "quality": IMAGE_QUALITY},
             "video_output": {
                 "duration_min_seconds": 2,
                 "duration_max_seconds": 15,
@@ -265,12 +277,18 @@ def create_app() -> FastAPI:
     async def lesson_studio_project(project_id: str) -> dict:
         project_dir = _safe_project_dir(project_id)
         source = _read_json_file(project_dir / "artifacts" / "lesson_source.json")
+        provider_status = {
+            "text": bool(_os.environ.get("DASHSCOPE_API_KEY")),
+            "image": bool(_os.environ.get("LOCAL_IMAGE_API_KEY")),
+            "video": bool(_os.environ.get("DASHSCOPE_API_KEY")),
+        }
         return {
             "project_id": project_id,
             "title": (_read_json_file(project_dir / "project.json") or {}).get("title", project_id),
             "source_text": (source or {}).get("normalized_text", ""),
             "workflow": read_studio_state(project_dir),
-            "provider_ready": bool(_os.environ.get("DASHSCOPE_API_KEY")),
+            "provider_ready": all(provider_status.values()),
+            "provider_status": provider_status,
             "board": await asyncio.to_thread(load_board_state, project_dir),
         }
 

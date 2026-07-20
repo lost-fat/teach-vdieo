@@ -181,7 +181,7 @@ def test_lesson_plan_can_lock_article_mode_to_measured_narration():
         },
         "visual": {
             "style_playbook": "esl-cinematic-editorial",
-            "image_model": "qwen-image-2.0-pro",
+            "image_model": "flux2-klein-base-4b",
             "video_model": "wan2.6-i2v-flash",
         },
         "render": {

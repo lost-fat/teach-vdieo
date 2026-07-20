@@ -39,7 +39,9 @@ function setBusy(button, busy, label) {
 async function loadConfig() {
   const config = await getJSON("/api/lesson-studio/config");
   const badge = document.getElementById("providerStatus");
-  badge.textContent = config.provider_ready ? "百炼云 · 已就绪" : "百炼云 Key 未载入";
+  const status = config.provider_status || {};
+  const missing = [status.text === false ? "文本/视频" : "", status.image === false ? "图片" : ""].filter(Boolean);
+  badge.textContent = config.provider_ready ? "模型服务 · 已就绪" : `${missing.join("、") || "模型"} Key 未载入`;
   badge.classList.toggle("ready", config.provider_ready);
   badge.classList.toggle("blocked", !config.provider_ready);
   const videoOutput = config.video_output || {};
@@ -159,7 +161,7 @@ function openPrompts(card) {
   promptDialog.showModal();
 }
 
-function sceneCard(card, index, providerReady, phase) {
+function sceneCard(card, index, providerStatus, phase) {
   const media = el("div", { class: "shot-media" });
   const imageTake = latestTake(card, "image");
   const videoTake = latestTake(card, "video");
@@ -186,6 +188,9 @@ function sceneCard(card, index, providerReady, phase) {
 
   const generatingVideo = phase === "video";
   const composeReady = phase === "compose";
+  const providerReady = generatingVideo
+    ? providerStatus.video !== false
+    : providerStatus.image !== false;
   const canGenerate = providerReady && !composeReady && (!generatingVideo || Boolean(imageTake));
   const generate = el("button", {
     class: "shot-generate",
@@ -194,12 +199,12 @@ function sceneCard(card, index, providerReady, phase) {
     title: composeReady
       ? "该镜头已进入字幕与合成阶段"
       : !providerReady
-        ? "当前 Backlot 进程未载入 DASHSCOPE_API_KEY"
+        ? "当前 Backlot 进程未载入当前阶段所需 Key"
         : generatingVideo && !imageTake
           ? "请先生成首帧"
           : generatingVideo
             ? "调用 wan2.6-i2v-flash 生成当前镜头"
-            : "调用 qwen-image-2.0-pro 生成一张首帧",
+            : "调用 flux2-klein-base-4b 生成一张首帧",
   }, composeReady
     ? "视频已确认"
     : generatingVideo
@@ -207,7 +212,7 @@ function sceneCard(card, index, providerReady, phase) {
       : (imageTake ? "重新生成首帧" : "生成首帧"));
   generate.addEventListener("click", async () => {
     const kind = generatingVideo ? "video" : "image";
-    const model = generatingVideo ? "wan2.6-i2v-flash" : "qwen-image-2.0-pro";
+    const model = generatingVideo ? "wan2.6-i2v-flash" : "flux2-klein-base-4b";
     setBusy(generate, true, generatingVideo ? "视频生成中…" : "首帧生成中…");
     renderTemporaryStatus(`正在为 ${card.id} 调用 ${model}；只生成当前镜头，无模型回退。`, true);
     try {
@@ -233,7 +238,7 @@ function sceneCard(card, index, providerReady, phase) {
         el("button", { class: "shot-prompts", type: "button", onclick: () => openPrompts(card) }, "查看提示词")),
       el("p", { class: "shot-contribution" }, generatingVideo || composeReady
         ? `wan2.6-i2v-flash · 1080P · ${Math.round(card.duration_seconds || 5)} 秒 · 静音 · 免费额度用完即停`
-        : "qwen-image-2.0-pro · 2688×1536 · 免费额度用完即停"),
+        : "flux2-klein-base-4b · 1024×1024 · 本地兼容接口"),
     ));
 }
 
@@ -326,7 +331,12 @@ function renderProject(data) {
   planButton.hidden = scenes.length > 0;
   document.getElementById("shotsHead").hidden = scenes.length === 0;
   shotGrid.innerHTML = "";
-  scenes.forEach((card, index) => shotGrid.append(sceneCard(card, index, data.provider_ready, phase)));
+  const providerStatus = data.provider_status || {
+    text: data.provider_ready,
+    image: data.provider_ready,
+    video: data.provider_ready,
+  };
+  scenes.forEach((card, index) => shotGrid.append(sceneCard(card, index, providerStatus, phase)));
   renderNextStep(workflow, scenes);
 }
 

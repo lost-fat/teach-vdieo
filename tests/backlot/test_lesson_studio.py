@@ -19,6 +19,7 @@ from backlot.lesson_studio import (
     _compile_prompt_cards,
     _validate_planner_json,
     advance_lesson_stage,
+    generate_lesson_scene_image,
     generate_lesson_scene_video,
     plan_lesson_storyboard,
     reconcile_lesson_assets,
@@ -129,6 +130,11 @@ class TestLessonStudioApi:
         response = client.get("/api/lesson-studio/config")
 
         assert response.status_code == 200
+        assert response.json()["models"]["image"] == "flux2-klein-base-4b"
+        assert response.json()["image_output"] == {
+            "size": "1024x1024",
+            "quality": "medium",
+        }
         assert response.json()["video_output"] == {
             "duration_min_seconds": 2,
             "duration_max_seconds": 15,
@@ -434,7 +440,7 @@ def test_parallel_asset_commits_merge_instead_of_overwriting(tmp_path):
             "id": f"image-sc_{scene_number}-take-1",
             "type": "image",
             "path": f"assets/images/sc_{scene_number}-take-1.png",
-            "source_tool": "dashscope_image",
+            "source_tool": "local_openai_image",
             "scene_id": f"sc_{scene_number}",
             "cost_usd": 0.02,
         })
@@ -529,6 +535,62 @@ def test_stage_advance_requires_complete_assets(tmp_path):
     assert advance_lesson_stage(project)["stage"] == "compose_ready"
 
 
+def test_scene_image_generation_uses_local_openai_compatible_contract(tmp_path, monkeypatch):
+    project = tmp_path / "lesson"
+    artifacts = project / "artifacts"
+    artifacts.mkdir(parents=True)
+    (project / "studio_state.json").write_text(json.dumps({
+        "version": "1.0",
+        "project_id": "lesson",
+        "stage": "storyboard_ready",
+        "status": "awaiting_human",
+    }))
+    (artifacts / "scene_plan.json").write_text(json.dumps({
+        "version": "1.0",
+        "scenes": [{
+            "id": "sc_1",
+            "type": "generated",
+            "description": "Tom protects an injured bird.",
+            "start_seconds": 0,
+            "end_seconds": 5,
+        }],
+    }))
+    (artifacts / "compiled_shot_prompts.json").write_text(json.dumps({
+        "version": "1.0",
+        "shots": [{
+            "scene_id": "sc_1",
+            "image_prompt_preview": "男孩在树下轻轻托起受伤的小鸟，电影感写实画面。",
+        }],
+    }))
+    (artifacts / "lesson_source.json").write_text(json.dumps({"source_sha256": "abc"}))
+    (artifacts / "asset_manifest.json").write_text(json.dumps({
+        "version": "1.0", "assets": [], "total_cost_usd": 0,
+    }))
+    captured = {}
+
+    class FakeImage:
+        def execute(self, inputs):
+            captured.update(inputs)
+            output = Path(inputs["output_path"])
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b"png")
+            return SimpleNamespace(success=True, cost_usd=0, data={})
+
+    monkeypatch.setattr("backlot.lesson_studio.LocalOpenAIImage", FakeImage)
+
+    result = generate_lesson_scene_image(project, "sc_1")
+    manifest = json.loads((artifacts / "asset_manifest.json").read_text())
+
+    assert result["asset_id"] == "image-sc_1-take-1"
+    assert captured["model"] == "flux2-klein-base-4b"
+    assert captured["size"] == "1024x1024"
+    assert captured["quality"] == "medium"
+    assert captured["response_format"] == "url"
+    assert manifest["assets"][0]["source_tool"] == "local_openai_image"
+    assert manifest["assets"][0]["provider"] == "openai_compatible_local"
+    assert manifest["assets"][0]["cost_usd"] == 0
+
+
 def test_scene_video_generation_uses_locked_wan_contract(tmp_path, monkeypatch):
     project = tmp_path / "lesson"
     artifacts = project / "artifacts"
@@ -575,7 +637,7 @@ def test_scene_video_generation_uses_locked_wan_contract(tmp_path, monkeypatch):
             "id": "image-sc_1-take-1",
             "type": "image",
             "path": "assets/images/sc_1.png",
-            "source_tool": "dashscope_image",
+            "source_tool": "local_openai_image",
             "scene_id": "sc_1",
         }],
     }))
@@ -613,7 +675,7 @@ class TestLessonStudioUiContract:
         assert "生成分镜" in html
         assert "qwen3.7-plus" in html
         assert "生成首帧" in js
-        assert "qwen-image-2.0-pro" in js
+        assert "flux2-klein-base-4b" in js
         assert "图片生成提示词" in js
         assert "视频生成提示词" in js
         assert "时间动作节拍" in js
