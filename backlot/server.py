@@ -35,6 +35,7 @@ from backlot.lesson_studio import (
     plan_lesson_storyboard,
     read_studio_state,
 )
+from backlot.lesson_compose import compose_lesson_project
 from backlot.state import PROJECTS_DIR, REPO_ROOT, list_projects, load_board_state, summarize_project
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
@@ -347,6 +348,22 @@ def create_app() -> FastAPI:
         _invalidate_summary(project_id)
         hub.publish(project_id)
         return {"project_id": project_id, "stage": state["stage"], "workflow": state}
+
+    @app.post("/api/lesson-studio/projects/{project_id}/compose")
+    async def compose_lesson_studio_project(project_id: str, request: Request) -> dict:
+        require_local_origin(request)
+        project_dir = _safe_project_dir(project_id)
+        result = await run_studio_action(
+            f"compose:{project_id}", compose_lesson_project, project_dir
+        )
+        _invalidate_summary(project_id)
+        hub.publish(project_id)
+        return {
+            "project_id": project_id,
+            "stage": "completed",
+            "render": result,
+            "workflow": read_studio_state(project_dir),
+        }
 
     @app.get("/api/project/{project_id}/state")
     async def project_state(project_id: str) -> dict:

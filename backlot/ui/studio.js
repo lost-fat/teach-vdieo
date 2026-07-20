@@ -15,6 +15,7 @@ const nextStep = document.getElementById("nextStep");
 const nextStepButton = document.getElementById("nextStepButton");
 let activeProject = new URLSearchParams(location.search).get("project");
 let currentData = null;
+let projectPollTimer = null;
 
 function apiErrorMessage(error) {
   return error instanceof Error ? error.message : String(error || "请求失败");
@@ -253,6 +254,9 @@ function renderNextStep(workflow, scenes) {
   const videoCount = scenes.filter((card) => latestTake(card, "video")).length;
   const title = document.getElementById("nextStepTitle");
   const detail = document.getElementById("nextStepDetail");
+  const preview = document.getElementById("composePreview");
+  preview.hidden = true;
+  preview.innerHTML = "";
   nextStepButton.disabled = true;
   nextStepButton.dataset.phase = phase;
   if (phase === "images") {
@@ -275,9 +279,50 @@ function renderNextStep(workflow, scenes) {
     nextStepButton.disabled = missing > 0;
     return;
   }
-  title.textContent = "已进入字幕与合成阶段";
-  detail.textContent = "下一个工作台版本将在这里接入慢速英语旁白、中英文字幕与 Remotion 最终合成。";
-  nextStepButton.textContent = "字幕与合成待接入";
+  if (workflow.stage === "completed" && workflow.output_path) {
+    title.textContent = "英语课文视频已完成";
+    detail.textContent = "已使用慢速英语旁白、词级高亮英文、意群中文字幕和 Remotion 合成。";
+    preview.hidden = false;
+    preview.append(
+      el("video", {
+        src: mediaURL(activeProject, workflow.output_path),
+        controls: "controls",
+        playsinline: "playsinline",
+        preload: "metadata",
+      }),
+      el("a", {
+        class: "studio-ghost link-button",
+        href: mediaURL(activeProject, workflow.output_path),
+        download: "english-lesson-final.mp4",
+      }, "下载最终 MP4"),
+    );
+    nextStepButton.textContent = "合成已完成";
+    nextStepButton.disabled = true;
+    return;
+  }
+  if (workflow.status === "in_progress") {
+    const labels = {
+      composing_narration: "正在生成慢速旁白和词级时间轴",
+      composing_captions: "正在生成意群双语字幕",
+      composing_render: "Remotion 正在合成最终视频",
+    };
+    title.textContent = labels[workflow.stage] || "正在合成最终视频";
+    detail.textContent = "已生成的镜头视频保持只读；页面会自动跟踪进度，不需要重新生成镜头。";
+    nextStepButton.textContent = "合成进行中…";
+    nextStepButton.disabled = true;
+    return;
+  }
+  if (workflow.stage === "compose_error" || workflow.status === "error") {
+    title.textContent = "合成已停止，镜头视频未丢失";
+    detail.textContent = "可从已落盘的旁白、字幕或渲染阶段继续，不会再调用图片或视频生成 API。";
+    nextStepButton.textContent = "重试字幕与合成";
+    nextStepButton.disabled = false;
+    return;
+  }
+  title.textContent = "可生成旁白、字幕与最终视频";
+  detail.textContent = "将只读使用已确认的镜头，生成慢速英语旁白、中英意群字幕，再由 Remotion 输出最终 MP4。";
+  nextStepButton.textContent = "生成旁白、字幕并合成";
+  nextStepButton.disabled = false;
 }
 
 async function advanceProject() {
@@ -285,13 +330,30 @@ async function advanceProject() {
   nextStepButton.disabled = true;
   nextStepButton.textContent = "正在进入下一步…";
   try {
-    await requestJSON(`/api/lesson-studio/projects/${encodeURIComponent(activeProject)}/advance`, { method: "POST" });
+    const endpoint = nextStepButton.dataset.phase === "compose" ? "/compose" : "/advance";
+    if (endpoint === "/compose") {
+      nextStepButton.textContent = "正在生成旁白与合成…";
+      scheduleProjectPoll(1200);
+    }
+    await requestJSON(`/api/lesson-studio/projects/${encodeURIComponent(activeProject)}${endpoint}`, { method: "POST" });
     await loadProject();
   } catch (error) {
     nextStepButton.disabled = false;
     nextStepButton.textContent = previousLabel;
     renderTemporaryStatus(apiErrorMessage(error), false, true);
   }
+}
+
+function scheduleProjectPoll(delay = 2200) {
+  if (projectPollTimer || !activeProject) return;
+  projectPollTimer = window.setTimeout(async () => {
+    projectPollTimer = null;
+    try {
+      await loadProject();
+    } catch (_) {
+      scheduleProjectPoll(3000);
+    }
+  }, delay);
 }
 
 function renderTemporaryStatus(message, busy = false, error = false) {
@@ -338,6 +400,9 @@ function renderProject(data) {
   };
   scenes.forEach((card, index) => shotGrid.append(sceneCard(card, index, providerStatus, phase)));
   renderNextStep(workflow, scenes);
+  if (workflow.status === "in_progress" && workflow.stage.startsWith("composing_")) {
+    scheduleProjectPoll();
+  }
 }
 
 async function loadProject() {
