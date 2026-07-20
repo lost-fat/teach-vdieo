@@ -20,6 +20,7 @@ from backlot.lesson_studio import (
     _validate_planner_json,
     advance_lesson_stage,
     generate_lesson_scene_video,
+    plan_lesson_storyboard,
     reconcile_lesson_assets,
 )
 
@@ -355,6 +356,51 @@ def test_planner_rejects_internal_cut_language_in_a_continuous_scene():
 
     with pytest.raises(LessonStudioValidationError, match="连续单镜头"):
         _validate_planner_json(raw, source)
+
+
+def test_planner_allows_negated_internal_edit_language():
+    source, raw = _planner_fixture()
+    raw["scenes"][1]["description"] = (
+        "清晨逆光中的固定长镜头，不直接展示分屏或反射切换。"
+    )
+
+    scenes = _validate_planner_json(raw, source)
+
+    assert len(scenes) == 3
+
+
+def test_second_planner_validation_failure_restores_error_state(tmp_path, monkeypatch):
+    project = tmp_path / "lesson"
+    (project / "inputs").mkdir(parents=True)
+    (project / "artifacts").mkdir()
+    source, invalid = _planner_fixture()
+    invalid["scenes"][0]["camera_motion"] = "摄影机从鸟切换到玻璃中的人脸。"
+    (project / "inputs" / "article.txt").write_text(source)
+    (project / "studio_state.json").write_text(json.dumps({
+        "version": "1.0",
+        "project_id": "lesson",
+        "stage": "source_ready",
+        "status": "ready",
+    }))
+
+    class AlwaysInvalidPlanner:
+        def execute(self, inputs):
+            return SimpleNamespace(
+                success=True,
+                data={"json": json.loads(json.dumps(invalid))},
+                error=None,
+            )
+
+    monkeypatch.setattr("backlot.lesson_studio.DashscopeText", AlwaysInvalidPlanner)
+
+    with pytest.raises(LessonStudioValidationError, match="连续单镜头"):
+        plan_lesson_storyboard(project)
+
+    state = json.loads((project / "studio_state.json").read_text())
+    assert state["stage"] == "source_ready"
+    assert state["status"] == "error"
+    assert state["active_scene_id"] is None
+    assert "连续单镜头" in state["message"]
 
 
 def test_human_action_is_compiled_into_image_and_video_prompts():
