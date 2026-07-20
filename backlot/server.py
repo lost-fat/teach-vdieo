@@ -9,14 +9,24 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import re
 import time
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from backlot.lesson_studio import (
+    LessonStudioProviderError,
+    LessonStudioValidationError,
+    create_lesson_project,
+    generate_lesson_scene_image,
+    plan_lesson_storyboard,
+    read_studio_state,
+)
 from backlot.state import PROJECTS_DIR, REPO_ROOT, list_projects, load_board_state, summarize_project
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
@@ -149,6 +159,7 @@ async def _watch_projects() -> None:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Backlot", docs_url=None, redoc_url=None)
+    app.state.studio_locks = {}
 
     @app.on_event("startup")
     async def _startup() -> None:
@@ -169,6 +180,114 @@ def create_app() -> FastAPI:
     @app.get("/api/projects")
     async def projects() -> list:
         return await asyncio.to_thread(_cached_summaries)
+
+    # ---- Lesson Studio ------------------------------------------------
+
+    def require_local_origin(request: Request) -> None:
+        origin = request.headers.get("origin")
+        if not origin:
+            return
+        from urllib.parse import urlparse
+
+        parsed = urlparse(origin)
+        if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+            raise HTTPException(status_code=403, detail="Lesson Studio is local-only")
+
+    async def run_studio_action(key: str, func, *args):
+        lock = app.state.studio_locks.setdefault(key, asyncio.Lock())
+        if lock.locked():
+            raise HTTPException(status_code=409, detail="This action is already running")
+        try:
+            async with lock:
+                return await asyncio.to_thread(func, *args)
+        except LessonStudioValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except LessonStudioProviderError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logging.getLogger(__name__).exception("Lesson Studio action failed")
+            raise HTTPException(status_code=500, detail="Lesson Studio action failed") from exc
+
+    @app.get("/api/lesson-studio/config")
+    async def lesson_studio_config() -> dict:
+        return {
+            "provider_ready": bool(_os.environ.get("DASHSCOPE_API_KEY")),
+            "models": {
+                "text": "qwen3.7-plus",
+                "image": "qwen-image-2.0-pro",
+                "video": "wan2.6-i2v-flash",
+            },
+            "free_tier_only": True,
+            "paid_spend_cap_usd": 0,
+        }
+
+    @app.post("/api/lesson-studio/projects")
+    async def create_lesson_studio_project(request: Request) -> JSONResponse:
+        require_local_origin(request)
+        try:
+            payload = await request.json()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Expected a JSON request body") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=422, detail="Expected a JSON object")
+        try:
+            created = await asyncio.to_thread(
+                create_lesson_project,
+                title=payload.get("title", "English Lesson"),
+                source_text=payload.get("source_text", ""),
+                projects_dir=PROJECTS_DIR,
+            )
+        except LessonStudioValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        project_id = created["project_id"]
+        _invalidate_summary(project_id)
+        hub.publish(project_id)
+        return JSONResponse(
+            status_code=201,
+            content={"project_id": project_id, "studio_url": created["studio_url"]},
+        )
+
+    @app.get("/api/lesson-studio/projects/{project_id}")
+    async def lesson_studio_project(project_id: str) -> dict:
+        project_dir = _safe_project_dir(project_id)
+        source = _read_json_file(project_dir / "artifacts" / "lesson_source.json")
+        return {
+            "project_id": project_id,
+            "title": (_read_json_file(project_dir / "project.json") or {}).get("title", project_id),
+            "source_text": (source or {}).get("normalized_text", ""),
+            "workflow": read_studio_state(project_dir),
+            "provider_ready": bool(_os.environ.get("DASHSCOPE_API_KEY")),
+            "board": await asyncio.to_thread(load_board_state, project_dir),
+        }
+
+    @app.post("/api/lesson-studio/projects/{project_id}/plan")
+    async def plan_lesson_studio_project(project_id: str, request: Request) -> dict:
+        require_local_origin(request)
+        project_dir = _safe_project_dir(project_id)
+        plan = await run_studio_action(f"plan:{project_id}", plan_lesson_storyboard, project_dir)
+        _invalidate_summary(project_id)
+        hub.publish(project_id)
+        return {"project_id": project_id, "stage": "storyboard_ready", "plan": plan}
+
+    @app.post("/api/lesson-studio/projects/{project_id}/scenes/{scene_id}/image")
+    async def generate_lesson_studio_image(
+        project_id: str, scene_id: str, request: Request
+    ) -> dict:
+        require_local_origin(request)
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", scene_id):
+            raise HTTPException(status_code=400, detail="invalid scene id")
+        project_dir = _safe_project_dir(project_id)
+        asset = await run_studio_action(
+            f"image:{project_id}:{scene_id}",
+            generate_lesson_scene_image,
+            project_dir,
+            scene_id,
+        )
+        _invalidate_summary(project_id)
+        hub.publish(project_id)
+        return {"project_id": project_id, "stage": "images_in_review", "asset": asset}
 
     @app.get("/api/project/{project_id}/state")
     async def project_state(project_id: str) -> dict:
@@ -276,6 +395,10 @@ def create_app() -> FastAPI:
     async def board_page(project_id: str) -> HTMLResponse:
         return _ui_html("board.html", ("board.css", "board.js"))
 
+    @app.get("/studio")
+    async def lesson_studio_page() -> HTMLResponse:
+        return _ui_html("studio.html", ("board.css", "studio.css", "studio.js"))
+
     @app.get("/p/{project_path:path}")
     async def board_page_path(project_path: str) -> HTMLResponse:
         return _ui_html("board.html", ("board.css", "board.js"))
@@ -295,7 +418,7 @@ def create_app() -> FastAPI:
     async def ui_no_cache(request, call_next):
         response = await call_next(request)
         path = request.url.path
-        if path == "/" or path.startswith("/ui") or path.startswith("/p/"):
+        if path in {"/", "/studio"} or path.startswith("/ui") or path.startswith("/p/"):
             response.headers["Cache-Control"] = "no-cache"
         return response
 
@@ -311,6 +434,14 @@ def _safe_project_dir(project_id: str) -> Path:
     if not project_dir.is_dir():
         raise HTTPException(status_code=404, detail=f"unknown project: {project_id}")
     return project_dir
+
+
+def _read_json_file(path: Path) -> Optional[dict]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
 
 
 def _sse(payload: dict) -> str:

@@ -1,0 +1,77 @@
+# Lesson Studio Storyboard Preview Contract
+
+Read the complete source article before designing any shot. Return one JSON
+object with the exact shape below. This is a whole-article visual story, not a
+sentence-by-sentence illustration exercise.
+
+Requirements:
+
+- Use 3–12 scenes. Each scene is one continuous 14-second generated clip.
+- `source_text` values, joined with one space, must reproduce the complete
+  source article exactly, in order, with no omission, rewriting, or overlap.
+- Give the story a grounded recurring carrier. Its changing state must carry
+  the article from opening through turning point to payoff.
+- Use at least three different `story_beat` values and a recognizable opening,
+  turning point, and closing state.
+- The image description is a first frame, not a list of spoken nouns.
+- The three temporal actions must form one continuous shot with visible
+  progression, foreground parallax, and an earned visual payoff.
+- Do not request generated text, subtitles, labels, split screens, maps with
+  labels, talking heads, lip sync, internal cuts, fades, or morph transitions.
+- Keep geography, period, characters, props, screen direction, palette, and
+  lighting consistent across adjacent scenes.
+
+Allowed values:
+
+- `carrier.kind`: person, object, place, process, question, motif, ensemble
+- `story_beat`: hook, setup, tension, turning_point, development, payoff, reflection
+- `visual_role`: setting, movement, comparison, cause_effect, process,
+  historical_event, abstract_concept, dialogue, transition
+- `visual_mode`: direct_evidence, interpretive, metaphor, bridge, payoff
+
+JSON shape:
+
+```json
+{
+  "theme": "one sentence",
+  "visual_premise": "one sentence",
+  "carrier": {
+    "kind": "object",
+    "name": "canonical short name",
+    "description": "why this carrier can sustain the whole article",
+    "traits": ["stable visible trait", "stable visible trait"]
+  },
+  "opening_state": "observable opening state",
+  "turning_point": "observable turning point",
+  "closing_state": "observable resolved state",
+  "recurring_motif": "matchable shape, action, direction, or prop",
+  "style": {
+    "palette": ["color family", "color family"],
+    "lighting": "stable natural-light rule",
+    "texture": "mature editorial visual texture"
+  },
+  "scenes": [
+    {
+      "source_text": "exact contiguous source excerpt",
+      "visual_role": "historical_event",
+      "story_beat": "setup",
+      "chapter_objective": "what this chapter must change",
+      "story_contribution": "how this shot advances the whole visual story",
+      "visual_mode": "interpretive",
+      "description": "specific cinematic first frame",
+      "state_from": "observable state before this shot",
+      "state_to": "observable state after this shot",
+      "subject_motion": "consequential subject action",
+      "camera_motion": "camera response to that action",
+      "temporal_actions": [
+        "0–5 second action",
+        "5–10 second action",
+        "10–14 second action and payoff"
+      ],
+      "foreground_event": "foreground parallax event",
+      "visual_payoff": "final visible payoff",
+      "match_action": "continuity bridge from the previous scene"
+    }
+  ]
+}
+```

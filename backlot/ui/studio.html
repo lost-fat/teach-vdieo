@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson Studio</title>
+<link rel="stylesheet" href="/ui/board.css">
+<link rel="stylesheet" href="/ui/studio.css">
+</head>
+<body>
+<div class="studio-shell">
+  <header class="studio-head">
+    <a class="studio-brand" href="/">OpenMontage</a>
+    <div>
+      <p class="studio-eyebrow">ENGLISH TEXTBOOK PIPELINE</p>
+      <h1>Lesson Studio</h1>
+    </div>
+    <div class="studio-spacer"></div>
+    <span class="studio-provider" id="providerStatus">检查百炼云配置…</span>
+    <button class="studio-ghost" id="newProject" type="button">新课文</button>
+  </header>
+
+  <main>
+    <section class="studio-intro" id="inputView">
+      <div class="studio-copy">
+        <span class="studio-stepmark">01 / SOURCE</span>
+        <h2>粘贴一篇完整课文，先把它变成一个故事。</h2>
+        <p>文本规划只调用 <strong>qwen3.7-plus</strong>。图片和视频不会自动生成；你会先检查分镜，再逐镜决定是否消耗免费额度。</p>
+        <div class="studio-locks">
+          <span>图片 · qwen-image-2.0-pro</span>
+          <span>视频 · wan2.6-i2v-flash</span>
+          <span>预算 · 免费额度用完即停</span>
+        </div>
+      </div>
+      <form class="lesson-form" id="lessonForm">
+        <label for="lessonTitle">项目名称</label>
+        <input id="lessonTitle" name="title" maxlength="120" placeholder="例如：蒙内铁路英语课文" value="English Lesson">
+        <div class="field-row">
+          <label for="lessonText">英文课文</label>
+          <span id="charCount">0 / 20000</span>
+        </div>
+        <textarea id="lessonText" name="source_text" minlength="40" maxlength="20000" required placeholder="Paste the complete English article here…"></textarea>
+        <p class="form-error" id="formError" role="alert"></p>
+        <button class="studio-primary" id="createButton" type="submit">
+          <span>生成分镜</span>
+          <small>创建项目并运行文本故事规划</small>
+        </button>
+      </form>
+    </section>
+
+    <section class="project-view" id="projectView" hidden>
+      <div class="project-topline">
+        <div>
+          <p class="studio-eyebrow" id="projectId"></p>
+          <h2 id="projectTitle">Lesson</h2>
+        </div>
+        <div class="project-actions">
+          <a class="studio-ghost link-button" id="openBoard" href="#">打开制作看板</a>
+          <button class="studio-primary compact" id="planButton" type="button">生成分镜</button>
+        </div>
+      </div>
+
+      <ol class="studio-rail" id="stageRail" aria-label="制作阶段"></ol>
+      <div class="studio-status" id="studioStatus" role="status"></div>
+      <section class="story-summary" id="storySummary" hidden></section>
+
+      <div class="shots-head" id="shotsHead" hidden>
+        <div>
+          <p class="studio-eyebrow">STORYBOARD REVIEW</p>
+          <h3>逐镜检查画面，再决定生成哪一张。</h3>
+        </div>
+        <p>“生成首帧”每次只调用一张 <strong>qwen-image-2.0-pro</strong>，不会自动进入视频阶段。</p>
+      </div>
+      <div class="studio-grid" id="shotGrid"></div>
+    </section>
+  </main>
+</div>
+
+<dialog class="studio-dialog" id="promptDialog">
+  <form method="dialog"><button class="dialog-close" aria-label="关闭">ESC · CLOSE</button></form>
+  <div id="promptDialogBody"></div>
+</dialog>
+
+<script type="module" src="/ui/studio.js"></script>
+</body>
+</html>
