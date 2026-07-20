@@ -187,6 +187,7 @@ class TestLessonStudioUiContract:
         ui_dir = Path(__file__).resolve().parents[2] / "backlot" / "ui"
         html = (ui_dir / "studio.html").read_text(encoding="utf-8")
         js = (ui_dir / "studio.js").read_text(encoding="utf-8")
+        css = (ui_dir / "studio.css").read_text(encoding="utf-8")
 
         assert "生成分镜" in html
         assert "qwen3.7-plus" in html
@@ -199,4 +200,6 @@ class TestLessonStudioUiContract:
         assert "个版本" in js
         assert '["turning_point", "转折"]' in js
         assert "2–15 秒" in html
+        assert ".studio-shell [hidden]" in css
+        assert "display: none !important" in css
         assert "/api/lesson-studio/projects" in js
