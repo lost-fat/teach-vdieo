@@ -7,6 +7,8 @@ sentence-by-sentence illustration exercise.
 Requirements:
 
 - Use 3–12 scenes. Each scene is one continuous 14-second generated clip.
+- `source_text` 必须保留英文原文，不得翻译或改写。
+- 除 `source_text` 外，其余所有文本字段必须使用简体中文。字段枚举值仍使用下方指定的英文代码。
 - `source_text` values, joined with one space, must reproduce the complete
   source article exactly, in order, with no omission, rewriting, or overlap.
 - Give the story a grounded recurring carrier. Its changing state must carry

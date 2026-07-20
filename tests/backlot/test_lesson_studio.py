@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,6 +15,7 @@ from backlot.lesson_studio import (
     LessonStudioValidationError,
     _compile_prompt_cards,
     advance_lesson_stage,
+    generate_lesson_scene_video,
 )
 
 
@@ -309,6 +311,80 @@ def test_stage_advance_requires_complete_assets(tmp_path):
         ],
     }))
     assert advance_lesson_stage(project)["stage"] == "compose_ready"
+
+
+def test_scene_video_generation_uses_locked_wan_contract(tmp_path, monkeypatch):
+    project = tmp_path / "lesson"
+    artifacts = project / "artifacts"
+    image_dir = project / "assets" / "images"
+    artifacts.mkdir(parents=True)
+    image_dir.mkdir(parents=True)
+    (image_dir / "sc_1.png").write_bytes(b"image")
+    spec = {
+        "single_shot": True,
+        "subject_motion": "列车稳定向前行驶。",
+        "camera_motion": "摄像机缓慢侧移。",
+        "temporal_beats": [
+            {"start_seconds": 0, "end_seconds": 5, "action": "列车进入画面。"},
+            {"start_seconds": 5, "end_seconds": 10, "action": "前景树木形成视差。"},
+            {"start_seconds": 10, "end_seconds": 14, "action": "列车驶向城市。"},
+        ],
+        "continuity_refs": ["carrier-main"],
+        "caption_safe_area": "下方留出字幕空间。",
+        "negative_constraints": ["不要硬切"],
+    }
+    (artifacts / "scene_plan.json").write_text(json.dumps({
+        "version": "1.0",
+        "scenes": [{
+            "id": "sc_1",
+            "type": "generated",
+            "description": "列车驶过草原。",
+            "start_seconds": 0,
+            "end_seconds": 14,
+            "video_prompt_spec": spec,
+        }],
+    }))
+    (artifacts / "compiled_shot_prompts.json").write_text(json.dumps({
+        "version": "1.0",
+        "shots": [{
+            "scene_id": "sc_1",
+            "video_prompt": "生成一个完整连续的单镜头。",
+            "negative_video_prompt": "禁止镜头内硬切。",
+        }],
+    }))
+    (artifacts / "lesson_source.json").write_text(json.dumps({"source_sha256": "abc"}))
+    (artifacts / "asset_manifest.json").write_text(json.dumps({
+        "version": "1.0",
+        "assets": [{
+            "id": "image-sc_1-take-1",
+            "type": "image",
+            "path": "assets/images/sc_1.png",
+            "source_tool": "dashscope_image",
+            "scene_id": "sc_1",
+        }],
+    }))
+    captured = {}
+
+    class FakeVideo:
+        def execute(self, inputs):
+            captured.update(inputs)
+            output = Path(inputs["output_path"])
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(b"video")
+            return SimpleNamespace(success=True, cost_usd=0, data={})
+
+    monkeypatch.setattr("backlot.lesson_studio.DashscopeVideo", FakeVideo)
+
+    result = generate_lesson_scene_video(project, "sc_1")
+
+    assert result["asset_id"] == "video-sc_1-take-1"
+    assert captured["model"] == "wan2.6-i2v-flash"
+    assert captured["duration"] == 14
+    assert captured["resolution"] == "1080P"
+    assert captured["audio"] is False
+    assert captured["prompt_extend"] is False
+    assert captured["watermark"] is False
+    assert captured["prompt"].startswith("生成一个完整连续的单镜头")
 
 
 class TestLessonStudioUiContract:

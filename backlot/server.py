@@ -22,8 +22,10 @@ from fastapi.staticfiles import StaticFiles
 from backlot.lesson_studio import (
     LessonStudioProviderError,
     LessonStudioValidationError,
+    advance_lesson_stage,
     create_lesson_project,
     generate_lesson_scene_image,
+    generate_lesson_scene_video,
     plan_lesson_storyboard,
     read_studio_state,
 )
@@ -297,6 +299,35 @@ def create_app() -> FastAPI:
         _invalidate_summary(project_id)
         hub.publish(project_id)
         return {"project_id": project_id, "stage": "images_in_review", "asset": asset}
+
+    @app.post("/api/lesson-studio/projects/{project_id}/scenes/{scene_id}/video")
+    async def generate_lesson_studio_video(
+        project_id: str, scene_id: str, request: Request
+    ) -> dict:
+        require_local_origin(request)
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", scene_id):
+            raise HTTPException(status_code=400, detail="invalid scene id")
+        project_dir = _safe_project_dir(project_id)
+        asset = await run_studio_action(
+            f"video:{project_id}:{scene_id}",
+            generate_lesson_scene_video,
+            project_dir,
+            scene_id,
+        )
+        _invalidate_summary(project_id)
+        hub.publish(project_id)
+        return {"project_id": project_id, "stage": "videos_in_review", "asset": asset}
+
+    @app.post("/api/lesson-studio/projects/{project_id}/advance")
+    async def advance_lesson_studio_project(project_id: str, request: Request) -> dict:
+        require_local_origin(request)
+        project_dir = _safe_project_dir(project_id)
+        state = await run_studio_action(
+            f"advance:{project_id}", advance_lesson_stage, project_dir
+        )
+        _invalidate_summary(project_id)
+        hub.publish(project_id)
+        return {"project_id": project_id, "stage": state["stage"], "workflow": state}
 
     @app.get("/api/project/{project_id}/state")
     async def project_state(project_id: str) -> dict:

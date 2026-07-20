@@ -19,16 +19,17 @@ from typing import Any
 
 from lib.checkpoint import init_project, write_checkpoint
 from lib.lesson_source import build_lesson_source
-from lib.shot_prompt_builder import build_video_prompt
 from schemas.artifacts import validate_artifact
 from tools.graphics.dashscope_image import DashscopeImage
 from tools.text.dashscope_text import DashscopeText
+from tools.video.dashscope_video import DashscopeVideo
 
 
 SOURCE_MIN_CHARS = 40
 SOURCE_MAX_CHARS = 20_000
 TITLE_MAX_CHARS = 120
 CLIP_SECONDS = 14
+IMAGE_NEGATIVE_PROMPT = "禁止可读文字、字幕、标签、标志、水印、分屏、拼贴、几何变形和重复主体。"
 ALLOWED_BEATS = {
     "hook", "setup", "tension", "turning_point", "development", "payoff", "reflection",
 }
@@ -233,7 +234,7 @@ def _build_scene_plan(raw: dict[str, Any], source_text: str) -> dict[str, Any]:
     style = raw.get("style") if isinstance(raw.get("style"), dict) else {}
     palette = style.get("palette") if isinstance(style.get("palette"), list) else []
     palette = [str(item).strip() for item in palette if str(item).strip()] or [
-        "natural earth", "railway blue", "market green"
+        "自然大地色", "铁路蓝", "市场绿"
     ]
     bible = {
         "entities": [{
@@ -245,16 +246,16 @@ def _build_scene_plan(raw: dict[str, Any], source_text: str) -> dict[str, Any]:
         "period": None,
         "style": {
             "palette": palette,
-            "lighting": _require_string(style.get("lighting") or "natural documentary daylight", "style.lighting"),
-            "texture": _require_string(style.get("texture") or "mature cinematic editorial realism", "style.texture"),
+            "lighting": _require_string(style.get("lighting") or "自然纪录片日光", "style.lighting"),
+            "texture": _require_string(style.get("texture") or "成熟的电影感编辑写实质感", "style.texture"),
         },
         "camera_rules": [
-            "One continuous shot per generated clip",
-            "Preserve screen direction and match action across technical boundaries",
+            "每个生成片段只使用一个连续镜头",
+            "保持屏幕运动方向，并在技术切点前后匹配动作",
         ],
         "prohibited_elements": [
-            "readable generated text", "split screens", "maps with labels",
-            "talking-head testimonials", "internal hard cuts",
+            "可读的生成文字", "分屏", "带标签的地图",
+            "正面访谈式画面", "镜头内部硬切",
         ],
     }
 
@@ -292,10 +293,10 @@ def _build_scene_plan(raw: dict[str, Any], source_text: str) -> dict[str, Any]:
                 {"start_seconds": 10, "end_seconds": 14, "action": actions[2]},
             ],
             "continuity_refs": ["carrier-main"],
-            "caption_safe_area": "Keep the lower 30 percent quiet but naturally textured for bilingual captions.",
+            "caption_safe_area": "画面下方 30% 保持安静且具有自然纹理，为双语字幕留出安全区。",
             "negative_constraints": [
-                "readable generated text or subtitles", "hard cuts within the shot",
-                "split screen", "unstable camera shake", "warped subject geometry",
+                "可读的生成文字或字幕", "镜头内硬切",
+                "分屏", "不稳定的镜头抖动", "主体几何变形",
             ],
         }
         if source_scene.get("foreground_event"):
@@ -360,15 +361,40 @@ def _compile_prompt_cards(plan: dict[str, Any]) -> dict[str, Any]:
     carrier = bible["entities"][0]
     shots = []
     for scene in plan["scenes"]:
-        compiled = build_video_prompt(scene, bible, provider="wan-i2v")
+        spec = scene["video_prompt_spec"]
+        temporal_text = " ".join(
+            f"[{beat['start_seconds']}–{beat['end_seconds']} 秒] {beat['action']}"
+            for beat in spec["temporal_beats"]
+        )
+        video_parts = [
+            "生成一个完整连续的单镜头，镜头内不得硬切。",
+            f"画面起点：{scene['description']}",
+            f"贯穿主体：{carrier['canonical_name']}，稳定特征为{'、'.join(carrier['immutable_traits'])}。",
+            f"主体运动：{spec['subject_motion']}",
+            f"运镜：{spec['camera_motion']}",
+            f"时间动作节拍：{temporal_text}",
+        ]
+        if spec.get("foreground_event"):
+            video_parts.append(f"前景视差事件：{spec['foreground_event']}")
+        if spec.get("visual_payoff"):
+            video_parts.append(f"结尾视觉回报：{spec['visual_payoff']}")
+        video_parts.extend([
+            f"色彩：{'、'.join(style['palette'])}；光线：{style['lighting']}；质感：{style['texture']}。",
+            spec["caption_safe_area"],
+        ])
+        video_prompt = " ".join(video_parts)
+        negative_prompt = "禁止：" + "；".join([
+            *spec["negative_constraints"],
+            *bible.get("prohibited_elements", []),
+        ]) + "。"
         image_prompt = (
-            "Cinematic editorial first frame for an English learning video. "
-            f"{scene['description']} Preserve the recurring story carrier: "
-            f"{carrier['canonical_name']} — {', '.join(carrier['immutable_traits'])}. "
-            f"Palette: {', '.join(style['palette'])}. Lighting: {style['lighting']}. "
-            f"Texture: {style['texture']}. Natural geography and culturally grounded detail, "
-            "16:9 composition. Keep the lower 30 percent visually quiet for later bilingual "
-            "captions. Do not render words, labels, logos, subtitles, maps with labels, or watermarks."
+            "英语教学视频的电影感首帧。"
+            f"{scene['description']} 保持贯穿全片的主体："
+            f"{carrier['canonical_name']}，稳定特征为{'、'.join(carrier['immutable_traits'])}。"
+            f"配色：{'、'.join(style['palette'])}。光线：{style['lighting']}。"
+            f"质感：{style['texture']}。地理自然、文化细节真实，16:9 构图。"
+            "画面下方 30% 保持视觉安静，为后续双语字幕留出安全区。"
+            "禁止生成文字、标签、标志、字幕、带标签的地图或水印。"
         )
         shots.append({
             "scene_id": scene["id"],
@@ -378,8 +404,8 @@ def _compile_prompt_cards(plan: dict[str, Any]) -> dict[str, Any]:
             "story_beat": scene["story_beat"],
             "story_contribution": scene["story_contribution"],
             "image_prompt_preview": image_prompt,
-            "video_prompt": compiled["prompt"],
-            "negative_video_prompt": compiled["negative_prompt"],
+            "video_prompt": video_prompt,
+            "negative_video_prompt": negative_prompt,
             "temporal_beats": scene["video_prompt_spec"]["temporal_beats"],
             "source": "scene_plan_preview",
             "submitted_to_media_api": False,
@@ -461,6 +487,61 @@ def _safe_scene_id(scene_id: str) -> str:
     return scene_id
 
 
+def _scene_ids(project_dir: Path) -> list[str]:
+    plan = _read_json(project_dir / "artifacts" / "scene_plan.json")
+    scene_ids = [
+        str(scene.get("id"))
+        for scene in plan.get("scenes", [])
+        if isinstance(scene, dict) and scene.get("id")
+    ]
+    if not scene_ids:
+        raise LessonStudioValidationError("分镜尚未生成。")
+    return scene_ids
+
+
+def _completed_scene_ids(project_dir: Path, asset_type: str) -> set[str]:
+    manifest = _read_json(
+        project_dir / "artifacts" / "asset_manifest.json",
+        {"version": "1.0", "assets": []},
+    )
+    return {
+        str(asset.get("scene_id"))
+        for asset in manifest.get("assets", [])
+        if isinstance(asset, dict) and asset.get("type") == asset_type and asset.get("scene_id")
+    }
+
+
+def advance_lesson_stage(project_dir: Path) -> dict[str, Any]:
+    state = read_studio_state(project_dir)
+    stage = str(state.get("stage") or "source_ready")
+    scene_ids = _scene_ids(project_dir)
+    if stage in {
+        "source_ready", "storyboard_ready", "images_in_review", "generating_image",
+    }:
+        missing = [sid for sid in scene_ids if sid not in _completed_scene_ids(project_dir, "image")]
+        if missing:
+            raise LessonStudioValidationError(f"还需生成 {len(missing)} 张首帧才能进入视频阶段。")
+        return _update_studio_state(
+            project_dir,
+            stage="video_ready",
+            status="awaiting_human",
+            message="首帧已全部确认。请逐镜生成并审阅视频。",
+        )
+    if stage in {"video_ready", "videos_in_review", "generating_video"}:
+        missing = [sid for sid in scene_ids if sid not in _completed_scene_ids(project_dir, "video")]
+        if missing:
+            raise LessonStudioValidationError(f"还需生成 {len(missing)} 段视频才能进入合成阶段。")
+        return _update_studio_state(
+            project_dir,
+            stage="compose_ready",
+            status="awaiting_human",
+            message="视频镜头已全部确认。下一步是慢速旁白、双语字幕与 Remotion 合成。",
+        )
+    if stage == "compose_ready":
+        raise LessonStudioValidationError("项目已进入字幕与合成阶段。")
+    raise LessonStudioValidationError("当前阶段尚不能进入下一步。")
+
+
 def generate_lesson_scene_image(project_dir: Path, scene_id: str) -> dict[str, Any]:
     scene_id = _safe_scene_id(scene_id)
     plan = _read_json(project_dir / "artifacts" / "scene_plan.json")
@@ -497,10 +578,7 @@ def generate_lesson_scene_image(project_dir: Path, scene_id: str) -> dict[str, A
     result = DashscopeImage().execute({
         "model": "qwen-image-2.0-pro",
         "prompt": str(prompt_card["image_prompt_preview"]),
-        "negative_prompt": (
-            "readable text, subtitles, labels, logos, watermark, split screen, "
-            "collage, warped geometry, duplicate subjects"
-        ),
+        "negative_prompt": IMAGE_NEGATIVE_PROMPT,
         "size": "2688*1536",
         "n": 1,
         "prompt_extend": False,
@@ -528,10 +606,7 @@ def generate_lesson_scene_image(project_dir: Path, scene_id: str) -> dict[str, A
         "source_tool": "dashscope_image",
         "scene_id": scene_id,
         "prompt": str(prompt_card["image_prompt_preview"]),
-        "negative_prompt": (
-            "readable text, subtitles, labels, logos, watermark, split screen, "
-            "collage, warped geometry, duplicate subjects"
-        ),
+        "negative_prompt": IMAGE_NEGATIVE_PROMPT,
         "seed": seed,
         "model": "qwen-image-2.0-pro",
         "cost_usd": float(result.cost_usd or 0),
@@ -565,3 +640,129 @@ def generate_lesson_scene_image(project_dir: Path, scene_id: str) -> dict[str, A
     )
     return {"asset_id": asset_id, "scene_id": scene_id, "path": rel_path, "take": take}
 
+
+def _project_asset_path(project_dir: Path, stored_path: str) -> Path:
+    candidate = (project_dir / str(stored_path)).resolve()
+    project_root = project_dir.resolve()
+    if not candidate.is_relative_to(project_root):
+        raise LessonStudioValidationError("素材路径超出当前项目。")
+    return candidate
+
+
+def generate_lesson_scene_video(project_dir: Path, scene_id: str) -> dict[str, Any]:
+    scene_id = _safe_scene_id(scene_id)
+    plan = _read_json(project_dir / "artifacts" / "scene_plan.json")
+    scene = next((item for item in plan.get("scenes", []) if item.get("id") == scene_id), None)
+    if not isinstance(scene, dict):
+        raise LessonStudioValidationError("镜头不存在或分镜尚未生成。")
+    prompt_artifact = _read_json(project_dir / "artifacts" / "compiled_shot_prompts.json")
+    prompt_card = next(
+        (item for item in prompt_artifact.get("shots", []) if item.get("scene_id") == scene_id),
+        None,
+    )
+    if not isinstance(prompt_card, dict):
+        raise LessonStudioValidationError("该镜头缺少视频生成提示词。")
+
+    manifest_path = project_dir / "artifacts" / "asset_manifest.json"
+    manifest = _read_json(manifest_path, {"version": "1.0", "assets": [], "total_cost_usd": 0})
+    images = [
+        asset for asset in manifest.get("assets", [])
+        if asset.get("scene_id") == scene_id and asset.get("type") == "image"
+    ]
+    if not images:
+        raise LessonStudioValidationError("请先为该镜头生成并确认首帧。")
+    reference_path = _project_asset_path(project_dir, str(images[-1].get("path") or ""))
+    if not reference_path.is_file():
+        raise LessonStudioValidationError("该镜头的首帧文件不存在。")
+
+    existing = [
+        asset for asset in manifest.get("assets", [])
+        if asset.get("scene_id") == scene_id and asset.get("type") == "video"
+    ]
+    take = len(existing) + 1
+    duration = int(round(float(scene["end_seconds"]) - float(scene["start_seconds"])))
+    if not 2 <= duration <= 15:
+        raise LessonStudioValidationError("视频镜头时长必须为 2–15 秒的整数。")
+    filename = f"{scene_id}-take-{take}.mp4"
+    output_path = project_dir / "assets" / "video" / filename
+    task_state_path = project_dir / "state" / f"{scene_id}-take-{take}-wan.json"
+    source = _read_json(project_dir / "artifacts" / "lesson_source.json")
+    seed_material = f"{source.get('source_sha256', '')}:{scene_id}:video:{take}"
+    seed = int(hashlib.sha256(seed_material.encode()).hexdigest()[:8], 16) % 2_147_483_648
+    _update_studio_state(
+        project_dir,
+        stage="generating_video",
+        status="in_progress",
+        active_scene_id=scene_id,
+        message=f"wan2.6-i2v-flash 正在生成 {scene_id} 的 {duration} 秒连续镜头。",
+    )
+    result = DashscopeVideo().execute({
+        "model": "wan2.6-i2v-flash",
+        "operation": "image_to_video",
+        "prompt": str(prompt_card["video_prompt"]),
+        "negative_prompt": str(prompt_card["negative_video_prompt"]),
+        "reference_image_path": str(reference_path),
+        "duration": duration,
+        "resolution": "1080P",
+        "audio": False,
+        "prompt_extend": False,
+        "shot_type": "single",
+        "watermark": False,
+        "seed": seed,
+        "output_path": str(output_path),
+        "task_state_path": str(task_state_path),
+    })
+    if not result.success:
+        _update_studio_state(
+            project_dir,
+            stage="video_ready" if not existing else "videos_in_review",
+            status="error",
+            active_scene_id=None,
+            message=result.error,
+        )
+        raise LessonStudioProviderError(result.error or "视频生成失败。")
+
+    asset_id = f"video-{scene_id}-take-{take}"
+    rel_path = output_path.relative_to(project_dir).as_posix()
+    manifest.setdefault("assets", []).append({
+        "id": asset_id,
+        "type": "video",
+        "path": rel_path,
+        "source_tool": "dashscope_video",
+        "scene_id": scene_id,
+        "prompt": str(prompt_card["video_prompt"]),
+        "negative_prompt": str(prompt_card["negative_video_prompt"]),
+        "video_prompt_spec": scene["video_prompt_spec"],
+        "seed": seed,
+        "model": "wan2.6-i2v-flash",
+        "cost_usd": float(result.cost_usd or 0),
+        "duration_seconds": duration,
+        "resolution": "1080P",
+        "format": "mp4",
+        "subtype": "generated-continuous-shot",
+        "generation_summary": "用户单次点击触发的北京百炼图生视频；关闭模型回退、原生音频、提示词改写和水印。",
+        "provider": "dashscope",
+        "license": "AI-generated under the configured DashScope account terms",
+    })
+    manifest["total_cost_usd"] = round(
+        sum(float(asset.get("cost_usd") or 0) for asset in manifest["assets"]), 4
+    )
+    manifest["metadata"] = {
+        **(manifest.get("metadata") or {}),
+        "free_tier_only": True,
+        "paid_spend_cap_usd": 0,
+        "cost_basis": "estimated_list_price_not_account_charge",
+        "fallback_used": False,
+    }
+    validate_artifact("asset_manifest", manifest)
+    _atomic_write_json(manifest_path, manifest)
+    videos_generated = sum(1 for asset in manifest["assets"] if asset.get("type") == "video")
+    _update_studio_state(
+        project_dir,
+        stage="videos_in_review",
+        status="awaiting_human",
+        active_scene_id=None,
+        videos_generated=videos_generated,
+        message="镜头视频已生成。可以继续生成其他镜头，或重新生成当前镜头。",
+    )
+    return {"asset_id": asset_id, "scene_id": scene_id, "path": rel_path, "take": take}

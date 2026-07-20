@@ -1,4 +1,4 @@
-import { el, getJSON, thumbURL } from "/ui/lib.js";
+import { el, getJSON, mediaURL, thumbURL } from "/ui/lib.js";
 
 const form = document.getElementById("lessonForm");
 const inputView = document.getElementById("inputView");
@@ -11,6 +11,8 @@ const planButton = document.getElementById("planButton");
 const shotGrid = document.getElementById("shotGrid");
 const promptDialog = document.getElementById("promptDialog");
 const promptDialogBody = document.getElementById("promptDialogBody");
+const nextStep = document.getElementById("nextStep");
+const nextStepButton = document.getElementById("nextStepButton");
 let activeProject = new URLSearchParams(location.search).get("project");
 let currentData = null;
 
@@ -81,19 +83,39 @@ function storyBeatLabel(value) {
   return STORY_BEATS.get(value) || "镜头";
 }
 
-function stageIndex(workflow) {
+function latestTake(card, type) {
+  const matches = (card.takes || []).filter((take) => take.type === type && take.exists);
+  return matches.length ? matches[matches.length - 1] : null;
+}
+
+function sceneGenerationURL(sceneId, kind) {
+  const suffix = kind === "video" ? "/video" : "/image";
+  return `/api/lesson-studio/projects/${encodeURIComponent(activeProject)}/scenes/${encodeURIComponent(sceneId)}${suffix}`;
+}
+
+function workflowPhase(workflow, scenes) {
+  const stage = workflow.stage || "source_ready";
+  if (stage.includes("compose") || stage === "completed") return "compose";
+  if (stage.includes("video")) return "video";
+  if (scenes.length) return "images";
+  return "source";
+}
+
+function stageIndex(workflow, scenes) {
   const stage = workflow.stage || "source_ready";
   if (stage.includes("image")) return 2;
   if (stage.includes("video")) return 3;
   if (["storyboard_ready", "planning_storyboard"].includes(stage)) return 1;
   if (["compose", "completed"].includes(stage)) return 4;
+  if (stage.includes("compose")) return 4;
+  if (scenes.length) return 1;
   return 0;
 }
 
-function renderRail(workflow) {
+function renderRail(workflow, scenes) {
   const rail = document.getElementById("stageRail");
   rail.innerHTML = "";
-  const active = stageIndex(workflow);
+  const active = stageIndex(workflow, scenes);
   STAGES.forEach(([id, name, label], index) => {
     const status = index < active ? "done" : index === active ? "active" : "";
     rail.append(el("li", { class: status },
@@ -117,6 +139,7 @@ function promptBlock(label, text) {
 
 function openPrompts(card) {
   const video = card.video_prompt || {};
+  const image = latestTake(card, "image");
   const beats = Array.isArray(video.temporal_beats) ? video.temporal_beats : [];
   promptDialogBody.innerHTML = "";
   promptDialogBody.append(
@@ -124,7 +147,7 @@ function openPrompts(card) {
       el("p", { class: "studio-eyebrow" }, `${card.id} · ${storyBeatLabel(card.story_beat)}`),
       el("h2", {}, card.description || card.id)),
     card.story_contribution ? promptBlock("本镜头的叙事作用", card.story_contribution) : null,
-    promptBlock("图片生成提示词", (card.visual && card.visual.prompt) || card.image_prompt_preview),
+    promptBlock("图片生成提示词", (image && image.prompt) || card.image_prompt_preview),
     promptBlock("视频生成提示词", video.prompt),
     promptBlock("负面提示词", video.negative_prompt),
     beats.length ? el("section", { class: "dialog-block" },
@@ -137,11 +160,20 @@ function openPrompts(card) {
   promptDialog.showModal();
 }
 
-function sceneCard(card, index, providerReady) {
+function sceneCard(card, index, providerReady, phase) {
   const media = el("div", { class: "shot-media" });
-  if (card.visual && card.visual.exists && card.visual.type === "image") {
+  const imageTake = latestTake(card, "image");
+  const videoTake = latestTake(card, "video");
+  if (videoTake && ["video", "compose"].includes(phase)) {
+    media.append(el("video", {
+      src: mediaURL(activeProject, videoTake.path),
+      controls: "controls",
+      playsinline: "playsinline",
+      preload: "metadata",
+    }));
+  } else if (imageTake) {
     media.append(el("img", {
-      src: thumbURL(activeProject, card.visual.path, 640),
+      src: thumbURL(activeProject, imageTake.path, 640),
       alt: `${card.id} 已生成的首帧`,
       loading: "lazy",
     }));
@@ -150,22 +182,37 @@ function sceneCard(card, index, providerReady) {
   }
   media.append(
     el("span", { class: "shot-number" }, `镜头 ${String(index + 1).padStart(2, "0")}`),
-    el("span", { class: "shot-model" }, card.visual ? "已生成" : "计划首帧"),
+    el("span", { class: "shot-model" }, videoTake ? "视频已生成" : imageTake ? "首帧已生成" : "计划首帧"),
   );
 
+  const generatingVideo = phase === "video";
+  const composeReady = phase === "compose";
+  const canGenerate = providerReady && !composeReady && (!generatingVideo || Boolean(imageTake));
   const generate = el("button", {
     class: "shot-generate",
     type: "button",
-    disabled: providerReady ? null : "disabled",
-    title: providerReady
-      ? "调用 qwen-image-2.0-pro 生成一张首帧"
-      : "当前 Backlot 进程未载入 DASHSCOPE_API_KEY",
-  }, card.visual ? "重新生成" : "生成首帧");
+    disabled: canGenerate ? null : "disabled",
+    title: composeReady
+      ? "该镜头已进入字幕与合成阶段"
+      : !providerReady
+        ? "当前 Backlot 进程未载入 DASHSCOPE_API_KEY"
+        : generatingVideo && !imageTake
+          ? "请先生成首帧"
+          : generatingVideo
+            ? "调用 wan2.6-i2v-flash 生成当前镜头"
+            : "调用 qwen-image-2.0-pro 生成一张首帧",
+  }, composeReady
+    ? "视频已确认"
+    : generatingVideo
+      ? (videoTake ? "重新生成视频" : "生成视频")
+      : (imageTake ? "重新生成首帧" : "生成首帧"));
   generate.addEventListener("click", async () => {
-    setBusy(generate, true, "生成中…");
-    renderTemporaryStatus(`正在为 ${card.id} 调用 qwen-image-2.0-pro；一次一张，无模型回退。`, true);
+    const kind = generatingVideo ? "video" : "image";
+    const model = generatingVideo ? "wan2.6-i2v-flash" : "qwen-image-2.0-pro";
+    setBusy(generate, true, generatingVideo ? "视频生成中…" : "首帧生成中…");
+    renderTemporaryStatus(`正在为 ${card.id} 调用 ${model}；只生成当前镜头，无模型回退。`, true);
     try {
-      await requestJSON(`/api/lesson-studio/projects/${encodeURIComponent(activeProject)}/scenes/${encodeURIComponent(card.id)}/image`, { method: "POST" });
+      await requestJSON(sceneGenerationURL(card.id, kind), { method: "POST" });
       await loadProject();
     } catch (error) {
       renderTemporaryStatus(apiErrorMessage(error), false, true);
@@ -179,14 +226,68 @@ function sceneCard(card, index, providerReady) {
     el("div", { class: "shot-body" },
       el("div", { class: "shot-meta" },
         el("span", {}, storyBeatLabel(card.story_beat)),
-        el("span", {}, `${Math.round(card.duration_seconds || 0)} 秒 · ${card.takes.length || 0} 个版本`)),
+        el("span", {}, `${Math.round(card.duration_seconds || 0)} 秒 · ${(generatingVideo || composeReady ? (card.takes || []).filter((take) => take.type === "video").length : (card.takes || []).filter((take) => take.type === "image").length)} 个版本`)),
       el("h4", {}, card.description || card.id),
       card.story_contribution ? el("p", { class: "shot-contribution" }, card.story_contribution) : null,
       el("div", { class: "shot-actions" },
         generate,
         el("button", { class: "shot-prompts", type: "button", onclick: () => openPrompts(card) }, "查看提示词")),
-      el("p", { class: "shot-contribution" }, "qwen-image-2.0-pro · 2688×1536 · 免费额度用完即停"),
+      el("p", { class: "shot-contribution" }, generatingVideo || composeReady
+        ? "wan2.6-i2v-flash · 1080P · 14 秒 · 静音 · 免费额度用完即停"
+        : "qwen-image-2.0-pro · 2688×1536 · 免费额度用完即停"),
     ));
+}
+
+function renderNextStep(workflow, scenes) {
+  if (!scenes.length) {
+    nextStep.hidden = true;
+    return;
+  }
+  nextStep.hidden = false;
+  const phase = workflowPhase(workflow, scenes);
+  const imageCount = scenes.filter((card) => latestTake(card, "image")).length;
+  const videoCount = scenes.filter((card) => latestTake(card, "video")).length;
+  const title = document.getElementById("nextStepTitle");
+  const detail = document.getElementById("nextStepDetail");
+  nextStepButton.disabled = true;
+  nextStepButton.dataset.phase = phase;
+  if (phase === "images") {
+    const missing = scenes.length - imageCount;
+    title.textContent = `首帧进度：${imageCount} / ${scenes.length}`;
+    detail.textContent = missing
+      ? `请逐镜检查提示词并生成首帧。还缺 ${missing} 张，全部完成后才能进入视频生成。`
+      : "所有镜头都已有首帧。确认后，镜头卡片将切换为视频生成模式。";
+    nextStepButton.textContent = missing ? `还需 ${missing} 张首帧` : "确认全部首帧，进入视频生成";
+    nextStepButton.disabled = missing > 0;
+    return;
+  }
+  if (phase === "video") {
+    const missing = scenes.length - videoCount;
+    title.textContent = `视频进度：${videoCount} / ${scenes.length}`;
+    detail.textContent = missing
+      ? `请逐镜生成并播放审阅视频。还缺 ${missing} 段，全部完成后才能进入字幕与合成。`
+      : "所有镜头视频都已完成。确认后进入慢速旁白、双语字幕与 Remotion 合成阶段。";
+    nextStepButton.textContent = missing ? `还需 ${missing} 段视频` : "确认全部视频，进入字幕与合成";
+    nextStepButton.disabled = missing > 0;
+    return;
+  }
+  title.textContent = "已进入字幕与合成阶段";
+  detail.textContent = "下一个工作台版本将在这里接入慢速英语旁白、中英文字幕与 Remotion 最终合成。";
+  nextStepButton.textContent = "字幕与合成待接入";
+}
+
+async function advanceProject() {
+  const previousLabel = nextStepButton.textContent;
+  nextStepButton.disabled = true;
+  nextStepButton.textContent = "正在进入下一步…";
+  try {
+    await requestJSON(`/api/lesson-studio/projects/${encodeURIComponent(activeProject)}/advance`, { method: "POST" });
+    await loadProject();
+  } catch (error) {
+    nextStepButton.disabled = false;
+    nextStepButton.textContent = previousLabel;
+    renderTemporaryStatus(apiErrorMessage(error), false, true);
+  }
 }
 
 function renderTemporaryStatus(message, busy = false, error = false) {
@@ -203,11 +304,12 @@ function renderProject(data) {
   document.getElementById("projectId").textContent = data.project_id;
   document.getElementById("projectTitle").textContent = data.title;
   document.getElementById("openBoard").href = `/p/${encodeURIComponent(data.project_id)}`;
-  renderRail(data.workflow || {});
-  renderStatus(data.workflow || {});
-
   const storyboard = data.board && data.board.storyboard;
   const scenes = storyboard && Array.isArray(storyboard.scenes) ? storyboard.scenes : [];
+  const workflow = data.workflow || {};
+  const phase = workflowPhase(workflow, scenes);
+  renderRail(workflow, scenes);
+  renderStatus(workflow);
   const arc = storyboard && storyboard.visual_story_arc;
   const summary = document.getElementById("storySummary");
   if (arc) {
@@ -225,7 +327,8 @@ function renderProject(data) {
   planButton.hidden = scenes.length > 0;
   document.getElementById("shotsHead").hidden = scenes.length === 0;
   shotGrid.innerHTML = "";
-  scenes.forEach((card, index) => shotGrid.append(sceneCard(card, index, data.provider_ready)));
+  scenes.forEach((card, index) => shotGrid.append(sceneCard(card, index, data.provider_ready, phase)));
+  renderNextStep(workflow, scenes);
 }
 
 async function loadProject() {
@@ -271,6 +374,7 @@ form.addEventListener("submit", async (event) => {
 });
 
 planButton.addEventListener("click", runPlan);
+nextStepButton.addEventListener("click", advanceProject);
 lessonText.addEventListener("input", updateCharCount);
 document.getElementById("newProject").addEventListener("click", () => {
   const url = new URL(location.href);
